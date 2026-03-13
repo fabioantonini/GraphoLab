@@ -1,0 +1,32 @@
+services:
+  jupyter:
+    build: .
+    container_name: grapholab-jupyter
+    ports:
+      - "8888:8888"
+    environment:
+      - APP_MODE=jupyter
+      - HF_HOME=/app/cache
+      - JUPYTER_TOKEN=grapholab
+    volumes:
+      - ./notebooks:/app/notebooks
+      - ./data:/app/data
+      - hf_cache:/app/cache
+    restart: unless-stopped
+
+  gradio:
+    build: .
+    container_name: grapholab-gradio
+    ports:
+      - "7860:7860"
+    environment:
+      - APP_MODE=gradio
+      - HF_HOME=/app/cache
+    volumes:
+      - ./data:/app/data
+      - hf_cache:/app/cache
+    restart: unless-stopped
+
+volumes:
+  hf_cache:
+    name: grapholab-hf-cache
