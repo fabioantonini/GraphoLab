@@ -191,6 +191,14 @@ A browser-based multi-tab Gradio application aggregating the four main AI capabi
 **Running locally:**
 
 ```bash
+# Create and activate a virtual environment (recommended)
+python -m venv .venv
+
+# Windows
+.venv\Scripts\activate
+# macOS / Linux
+source .venv/bin/activate
+
 pip install -r requirements.txt
 python app/grapholab_demo.py
 # Open http://localhost:7860

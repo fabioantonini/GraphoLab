@@ -191,6 +191,14 @@ Un'applicazione Gradio multi-tab accessibile da browser che aggrega le quattro p
 **Avvio in locale:**
 
 ```bash
+# Crea e attiva un virtual environment (consigliato)
+python -m venv .venv
+
+# Windows
+.venv\Scripts\activate
+# macOS / Linux
+source .venv/bin/activate
+
 pip install -r requirements.txt
 python app/grapholab_demo.py
 # Apri http://localhost:7860
