@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose:*)",
+      "Bash(venv/Scripts/python --version)",
+      "Bash(venv/Scripts/python -c \":*)",
+      "Bash(venv/Scripts/pip install:*)",
+      "Read(//tmp/sigver/sigver/**)",
+      "Read(//tmp/sigver/sigver/models/**)",
+      "Read(//tmp/sigver/**)"
+    ]
+  }
+}
