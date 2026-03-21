@@ -67,10 +67,22 @@ def get_yolo():
     if _yolo_model is None:
         print("Loading YOLOv8 signature detector...")
         hf_token = os.environ.get("HF_TOKEN")
-        model_path = hf_hub_download(
-            repo_id=YOLO_REPO, filename="model.pt", token=hf_token
-        )
-        _yolo_model = YOLO(model_path)
+        # Try common filenames used in YOLO HF repos
+        for filename in ("model.pt", "best.pt", "yolov8s.pt"):
+            try:
+                model_path = hf_hub_download(
+                    repo_id=YOLO_REPO, filename=filename, token=hf_token
+                )
+                _yolo_model = YOLO(model_path)
+                print(f"Loaded YOLO model from {filename}")
+                break
+            except Exception:
+                continue
+        if _yolo_model is None:
+            raise RuntimeError(
+                f"Could not find a valid model file in {YOLO_REPO}. "
+                "Check the 'Files and versions' tab on HuggingFace for the correct filename."
+            )
     return _yolo_model
 
 
