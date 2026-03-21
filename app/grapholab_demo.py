@@ -29,7 +29,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as T
 import gradio as gr
+from collections import OrderedDict
 from PIL import Image, ImageDraw, ImageOps
+from skimage import filters, transform as sk_transform
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 from ultralytics import YOLO
 from huggingface_hub import hf_hub_download
@@ -76,53 +78,105 @@ def get_yolo():
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# SigNet Encoder (used for signature verification)
+# SigNet (sigver architecture — Hafemann et al. 2017)
 # ──────────────────────────────────────────────────────────────────────────────
 
-class SigNetEncoder(nn.Module):
+SIGNET_WEIGHTS = ROOT / "models" / "signet.pth"
+SIGNET_CANVAS  = (952, 1360)   # max signature canvas for preprocessing
+
+
+def _conv_bn_relu(in_ch, out_ch, kernel, stride=1, pad=0):
+    return nn.Sequential(OrderedDict([
+        ("conv", nn.Conv2d(in_ch, out_ch, kernel, stride, pad, bias=False)),
+        ("bn",   nn.BatchNorm2d(out_ch)),
+        ("relu", nn.ReLU()),
+    ]))
+
+
+def _linear_bn_relu(in_f, out_f):
+    return nn.Sequential(OrderedDict([
+        ("fc",   nn.Linear(in_f, out_f, bias=False)),
+        ("bn",   nn.BatchNorm1d(out_f)),
+        ("relu", nn.ReLU()),
+    ]))
+
+
+class SigNet(nn.Module):
+    """SigNet feature extractor (sigver re-implementation, output: 2048-d L2-normalised)."""
     def __init__(self):
         super().__init__()
-        self.features = nn.Sequential(
-            nn.Conv2d(1, 96, 11), nn.ReLU(True),
-            nn.LocalResponseNorm(5, 1e-4, 0.75, 2), nn.MaxPool2d(3, 2),
-            nn.Conv2d(96, 256, 5, padding=2), nn.ReLU(True),
-            nn.LocalResponseNorm(5, 1e-4, 0.75, 2), nn.MaxPool2d(3, 2), nn.Dropout2d(0.3),
-            nn.Conv2d(256, 384, 3, padding=1), nn.ReLU(True),
-            nn.Conv2d(384, 256, 3, padding=1), nn.ReLU(True),
-            nn.MaxPool2d(3, 2), nn.Dropout2d(0.3),
-        )
-        self.fc = nn.Sequential(
-            nn.Linear(256 * 17 * 25, 1024), nn.ReLU(True), nn.Dropout(0.5),
-            nn.Linear(1024, 128),
-        )
+        self.conv_layers = nn.Sequential(OrderedDict([
+            ("conv1",    _conv_bn_relu(1, 96, 11, stride=4)),
+            ("maxpool1", nn.MaxPool2d(3, 2)),
+            ("conv2",    _conv_bn_relu(96, 256, 5, pad=2)),
+            ("maxpool2", nn.MaxPool2d(3, 2)),
+            ("conv3",    _conv_bn_relu(256, 384, 3, pad=1)),
+            ("conv4",    _conv_bn_relu(384, 384, 3, pad=1)),
+            ("conv5",    _conv_bn_relu(384, 256, 3, pad=1)),
+            ("maxpool3", nn.MaxPool2d(3, 2)),
+        ]))
+        self.fc_layers = nn.Sequential(OrderedDict([
+            ("fc1", _linear_bn_relu(256 * 3 * 5, 2048)),
+            ("fc2", _linear_bn_relu(2048, 2048)),
+        ]))
 
     def forward_once(self, x):
-        x = self.features(x)
-        x = x.view(x.size(0), -1)
-        return F.normalize(self.fc(x), p=2, dim=1)
+        x = self.conv_layers(x)
+        x = x.view(x.size(0), 256 * 3 * 5)
+        x = self.fc_layers(x)
+        return F.normalize(x, p=2, dim=1)
 
 
 _signet = None
+_signet_pretrained = False
 
 
 def get_signet():
-    global _signet
+    global _signet, _signet_pretrained
     if _signet is None:
-        _signet = SigNetEncoder().to(DEVICE).eval()
+        model = SigNet().to(DEVICE).eval()
+        if SIGNET_WEIGHTS.exists():
+            state_dict, _, _ = torch.load(SIGNET_WEIGHTS, map_location=DEVICE)
+            model.load_state_dict(state_dict)
+            _signet_pretrained = True
+            print("SigNet: loaded pre-trained weights from", SIGNET_WEIGHTS)
+        else:
+            print("SigNet: no pre-trained weights found — using random initialisation.")
+        _signet = model
     return _signet
 
 
-SIG_TRANSFORM = T.Compose([
-    T.Grayscale(), T.Resize((155, 220)), T.ToTensor(), T.Normalize([0.5], [0.5])
-])
-
-
 def preprocess_signature(pil_img: Image.Image) -> torch.Tensor:
-    img = pil_img.convert("RGB")
-    arr = np.array(img.convert("L"))
-    if arr.mean() < 128:
-        img = ImageOps.invert(img)
-    return SIG_TRANSFORM(img).unsqueeze(0).to(DEVICE)
+    """Sigver-compatible preprocessing: centre on canvas, invert, resize to 150×220."""
+    arr = np.array(pil_img.convert("L"), dtype=np.uint8)
+
+    # Centre on canvas
+    canvas = np.ones(SIGNET_CANVAS, dtype=np.uint8) * 255
+    try:
+        threshold = filters.threshold_otsu(arr)
+        blurred   = filters.gaussian(arr, 2, preserve_range=True)
+        binary    = blurred > threshold
+        rows, cols = np.where(binary == 0)
+        if len(rows) == 0:
+            raise ValueError("empty")
+        cropped   = arr[rows.min():rows.max(), cols.min():cols.max()]
+        r_center  = int(rows.mean() - rows.min())
+        c_center  = int(cols.mean() - cols.min())
+        r_start   = max(0, SIGNET_CANVAS[0] // 2 - r_center)
+        c_start   = max(0, SIGNET_CANVAS[1] // 2 - c_center)
+        h = min(cropped.shape[0], SIGNET_CANVAS[0] - r_start)
+        w = min(cropped.shape[1], SIGNET_CANVAS[1] - c_start)
+        canvas[r_start:r_start + h, c_start:c_start + w] = cropped[:h, :w]
+        canvas[canvas > threshold] = 255
+    except Exception:
+        canvas = arr  # fallback: use image as-is
+
+    # Invert and resize to 150×220
+    inverted = 255 - canvas
+    resized  = sk_transform.resize(inverted, (150, 220), preserve_range=True,
+                                   anti_aliasing=True).astype(np.uint8)
+    tensor   = torch.from_numpy(resized).float().div(255)
+    return tensor.unsqueeze(0).unsqueeze(0).to(DEVICE)  # (1, 1, 150, 220)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -176,14 +230,19 @@ def sig_verify(ref_image: np.ndarray, query_image: np.ndarray) -> str:
     confidence = max(0.0, min(1.0, 1.0 - cosine_dist / 2.0))
     verdict = "GENUINE ✓" if cosine_dist < SIG_THRESHOLD else "FORGED ✗"
 
+    weights_note = (
+        "Pre-trained SigNet weights loaded (luizgh/sigver — GPDS dataset)."
+        if _signet_pretrained else
+        "WARNING: random weights — results are not meaningful.\n"
+        "Download signet.pth from luizgh/sigver and place it in models/signet.pth."
+    )
     return (
         f"Verdict: {verdict}\n"
         f"Confidence: {confidence:.1%}\n"
         f"Cosine similarity: {cosine_sim:.4f}\n"
         f"Cosine distance: {cosine_dist:.4f}\n"
         f"Threshold: {SIG_THRESHOLD}\n\n"
-        f"⚠️  Note: These weights are randomly initialised for demo purposes.\n"
-        f"Load pre-trained SigNet weights for production use."
+        f"{weights_note}"
     )
 
 
