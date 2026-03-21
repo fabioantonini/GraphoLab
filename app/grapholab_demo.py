@@ -41,6 +41,7 @@ from huggingface_hub import hf_hub_download
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 TROCR_MODEL = "microsoft/trocr-base-handwritten"
 YOLO_REPO = "tech4humans/yolov8s-signature-detector"
+YOLO_FILENAME = "yolov8s.pt"
 SIG_THRESHOLD = 0.35  # cosine distance threshold for signature verification
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -67,22 +68,10 @@ def get_yolo():
     if _yolo_model is None:
         print("Loading YOLOv8 signature detector...")
         hf_token = os.environ.get("HF_TOKEN")
-        # Try common filenames used in YOLO HF repos
-        for filename in ("model.pt", "best.pt", "yolov8s.pt"):
-            try:
-                model_path = hf_hub_download(
-                    repo_id=YOLO_REPO, filename=filename, token=hf_token
-                )
-                _yolo_model = YOLO(model_path)
-                print(f"Loaded YOLO model from {filename}")
-                break
-            except Exception:
-                continue
-        if _yolo_model is None:
-            raise RuntimeError(
-                f"Could not find a valid model file in {YOLO_REPO}. "
-                "Check the 'Files and versions' tab on HuggingFace for the correct filename."
-            )
+        model_path = hf_hub_download(
+            repo_id=YOLO_REPO, filename=YOLO_FILENAME, token=hf_token
+        )
+        _yolo_model = YOLO(model_path)
     return _yolo_model
 
 
