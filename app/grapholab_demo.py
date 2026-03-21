@@ -66,7 +66,10 @@ def get_yolo():
     global _yolo_model
     if _yolo_model is None:
         print("Loading YOLOv8 signature detector...")
-        model_path = hf_hub_download(repo_id=YOLO_REPO, filename="model.pt")
+        hf_token = os.environ.get("HF_TOKEN")
+        model_path = hf_hub_download(
+            repo_id=YOLO_REPO, filename="model.pt", token=hf_token
+        )
         _yolo_model = YOLO(model_path)
     return _yolo_model
 
@@ -88,7 +91,7 @@ class SigNetEncoder(nn.Module):
             nn.MaxPool2d(3, 2), nn.Dropout2d(0.3),
         )
         self.fc = nn.Sequential(
-            nn.Linear(256 * 6 * 9, 1024), nn.ReLU(True), nn.Dropout(0.5),
+            nn.Linear(256 * 17 * 25, 1024), nn.ReLU(True), nn.Dropout(0.5),
             nn.Linear(1024, 128),
         )
 
@@ -149,7 +152,7 @@ htr_tab = gr.Interface(
     examples=[
         [str(ROOT / "data" / "samples" / "handwritten_text_01.png")]
     ] if (ROOT / "data" / "samples" / "handwritten_text_01.png").exists() else [],
-    allow_flagging="never",
+    flagging_mode="never",
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -197,7 +200,7 @@ sig_verify_tab = gr.Interface(
         "**Forensic use:** Bank cheques, contracts, wills.\n\n"
         "*For production use, load pre-trained weights from [luizgh/sigver](https://github.com/luizgh/sigver).*"
     ),
-    allow_flagging="never",
+    flagging_mode="never",
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -207,7 +210,20 @@ sig_verify_tab = gr.Interface(
 def sig_detect(image: np.ndarray, conf_threshold: float) -> tuple[np.ndarray, str]:
     if image is None:
         return image, "Please upload a document image."
-    yolo = get_yolo()
+    try:
+        yolo = get_yolo()
+    except Exception as e:
+        msg = (
+            "⚠️ **Model not available.**\n\n"
+            "The `tech4humans/yolov8s-signature-detector` model is gated on Hugging Face.\n\n"
+            "**To enable this tab:**\n"
+            "1. Create an account at huggingface.co\n"
+            "2. Request access at huggingface.co/tech4humans/yolov8s-signature-detector\n"
+            "3. Create a token at huggingface.co/settings/tokens\n"
+            "4. Set the environment variable `HF_TOKEN=<your_token>` before starting the app\n\n"
+            f"Error: {e}"
+        )
+        return image, msg
     pil_img = Image.fromarray(image).convert("RGB")
 
     # Save to temp file for YOLO
@@ -258,7 +274,7 @@ sig_detect_tab = gr.Interface(
         "**Model:** YOLOv8 fine-tuned for signature detection\n"
         "**Forensic use:** First step in a detect → extract → verify pipeline."
     ),
-    allow_flagging="never",
+    flagging_mode="never",
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -353,7 +369,7 @@ grapho_tab = gr.Interface(
         "**Technique:** OpenCV + classical image processing\n"
         "**Forensic use:** Profiling, comparative analysis, expert witness support."
     ),
-    allow_flagging="never",
+    flagging_mode="never",
 )
 
 # ──────────────────────────────────────────────────────────────────────────────

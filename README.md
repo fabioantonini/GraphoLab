@@ -23,20 +23,29 @@ See [docs/NOTEBOOKS_GUIDE.md](docs/NOTEBOOKS_GUIDE.md) for a full description of
 
 ### Local (Python)
 
+It is recommended to use Python 3.11 or 3.12. PyTorch does not yet support Python 3.13+.
+
 ```bash
+# Create a virtual environment with Python 3.11
+py -3.11 -m venv venv
+venv\Scripts\activate        # Windows
+# source venv/bin/activate   # Linux/macOS
+
+# Install PyTorch with CUDA 12.4 (GPU) — skip --index-url for CPU only
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 pip install -r requirements.txt
+
+# Run JupyterLab
 jupyter lab notebooks/
-```
 
-### Gradio Interactive Demo
-
-```bash
-pip install -r requirements.txt
+# Run Gradio demo
 python app/grapholab_demo.py
 # Open http://localhost:7860
 ```
 
 ### Docker
+
+Docker images use `nvidia/cuda:12.4.1` as base and support GPU automatically via the WSL2 backend on Windows (no extra configuration needed if NVIDIA drivers are installed).
 
 ```bash
 # JupyterLab at http://localhost:8888  (token: grapholab)
@@ -82,9 +91,33 @@ See [data/samples/README.md](data/samples/README.md) for naming conventions.
 | Use case | Resource |
 |----------|----------|
 | Handwritten OCR | [microsoft/trocr-base-handwritten](https://huggingface.co/microsoft/trocr-base-handwritten) |
-| Signature Detection | [tech4humans/yolov8s-signature-detector](https://huggingface.co/tech4humans/yolov8s-signature-detector) |
+| Signature Detection | [tech4humans/yolov8s-signature-detector](https://huggingface.co/tech4humans/yolov8s-signature-detector) ⚠️ gated |
 | Signature Verification | [luizgh/sigver](https://github.com/luizgh/sigver) |
 | Graphology ML reference | [CVxTz/handwriting_forensics](https://github.com/CVxTz/handwriting_forensics) |
+
+### Signature Detection — Gated Model Access
+
+The `tech4humans/yolov8s-signature-detector` model requires authentication on Hugging Face.
+
+**Steps to enable the Signature Detection tab:**
+
+1. Create or log in to your account at [huggingface.co](https://huggingface.co)
+2. Request access at [huggingface.co/tech4humans/yolov8s-signature-detector](https://huggingface.co/tech4humans/yolov8s-signature-detector)
+3. Once approved, create a token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) (type: Read)
+4. Set the token before starting the app:
+
+```powershell
+# Windows PowerShell
+$env:HF_TOKEN="hf_xxxxxxxxxxxxxxxx"
+venv\Scripts\python app\grapholab_demo.py
+```
+
+```bash
+# Linux/macOS or Windows bash
+HF_TOKEN=hf_xxxxxxxxxxxxxxxx python app/grapholab_demo.py
+```
+
+Without the token, the Signature Detection tab will display a friendly error message instead of crashing.
 
 ---
 

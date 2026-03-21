@@ -12,6 +12,13 @@ services:
       - ./notebooks:/app/notebooks
       - ./data:/app/data
       - hf_cache:/app/cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     restart: unless-stopped
 
   gradio:
@@ -25,6 +32,13 @@ services:
     volumes:
       - ./data:/app/data
       - hf_cache:/app/cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     restart: unless-stopped
 
 volumes:
