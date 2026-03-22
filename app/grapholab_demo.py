@@ -228,7 +228,7 @@ def _segment_lines(pil_img: Image.Image, min_gap: int = 5, pad: int = 6) -> list
 
 def htr_transcribe(image: np.ndarray) -> str:
     if image is None:
-        return "Please upload a handwritten image."
+        return "Carica un'immagine di testo manoscritto."
     processor, model = get_trocr()
     pil_img = Image.fromarray(image).convert("RGB")
     lines = _segment_lines(pil_img)
@@ -243,13 +243,13 @@ def htr_transcribe(image: np.ndarray) -> str:
 
 htr_tab = gr.Interface(
     fn=htr_transcribe,
-    inputs=gr.Image(label="Handwritten text image", type="numpy"),
-    outputs=gr.Textbox(label="Transcription", lines=8),
-    title="Handwritten Text Recognition (TrOCR)",
+    inputs=gr.Image(label="Immagine di testo manoscritto", type="numpy"),
+    outputs=gr.Textbox(label="Trascrizione", lines=8),
+    title="Riconoscimento Testo Manoscritto (TrOCR)",
     description=(
-        "Upload an image of handwritten text. The model will transcribe it automatically.\n\n"
-        "**Model:** `microsoft/trocr-base-handwritten` (Hugging Face)\n"
-        "**Forensic use:** Anonymous letters, historical documents, court exhibits."
+        "Carica un'immagine di testo scritto a mano. Il modello la trascriverà automaticamente.\n\n"
+        "**Modello:** `microsoft/trocr-base-handwritten` (Hugging Face)\n"
+        "**Uso forense:** Lettere anonime, documenti storici, atti processuali."
     ),
     examples=[
         [str(ROOT / "data" / "samples" / "handwritten_text_01.png")],
@@ -264,7 +264,7 @@ htr_tab = gr.Interface(
 
 def sig_verify(ref_image: np.ndarray, query_image: np.ndarray) -> str:
     if ref_image is None or query_image is None:
-        return "Please upload both a reference and a questioned signature."
+        return "Carica entrambe le immagini: la firma di riferimento e quella da verificare."
     model = get_signet()
     ref_pil = Image.fromarray(ref_image)
     query_pil = Image.fromarray(query_image)
@@ -276,20 +276,20 @@ def sig_verify(ref_image: np.ndarray, query_image: np.ndarray) -> str:
     cosine_sim = F.cosine_similarity(emb_ref, emb_query).item()
     cosine_dist = 1.0 - cosine_sim
     confidence = max(0.0, min(1.0, 1.0 - cosine_dist / 2.0))
-    verdict = "GENUINE ✓" if cosine_dist < SIG_THRESHOLD else "FORGED ✗"
+    verdict = "AUTENTICA ✓" if cosine_dist < SIG_THRESHOLD else "FALSA ✗"
 
     weights_note = (
-        "Pre-trained SigNet weights loaded (luizgh/sigver — GPDS dataset)."
+        "Pesi SigNet pre-addestrati caricati (luizgh/sigver — dataset GPDS)."
         if _signet_pretrained else
-        "WARNING: random weights — results are not meaningful.\n"
-        "Download signet.pth from luizgh/sigver and place it in models/signet.pth."
+        "ATTENZIONE: pesi casuali — i risultati non sono significativi.\n"
+        "Scarica signet.pth da luizgh/sigver e posizionalo in models/signet.pth."
     )
     return (
-        f"Verdict: {verdict}\n"
-        f"Confidence: {confidence:.1%}\n"
-        f"Cosine similarity: {cosine_sim:.4f}\n"
-        f"Cosine distance: {cosine_dist:.4f}\n"
-        f"Threshold: {SIG_THRESHOLD}\n\n"
+        f"Esito: {verdict}\n"
+        f"Confidenza: {confidence:.1%}\n"
+        f"Similarità coseno: {cosine_sim:.4f}\n"
+        f"Distanza coseno: {cosine_dist:.4f}\n"
+        f"Soglia: {SIG_THRESHOLD}\n\n"
         f"{weights_note}"
     )
 
@@ -297,16 +297,16 @@ def sig_verify(ref_image: np.ndarray, query_image: np.ndarray) -> str:
 sig_verify_tab = gr.Interface(
     fn=sig_verify,
     inputs=[
-        gr.Image(label="Reference signature (known genuine)", type="numpy"),
-        gr.Image(label="Questioned signature", type="numpy"),
+        gr.Image(label="Firma di riferimento (autentica nota)", type="numpy"),
+        gr.Image(label="Firma da verificare", type="numpy"),
     ],
-    outputs=gr.Textbox(label="Verification result", lines=8),
-    title="Signature Authenticity Verification (Siamese Network)",
+    outputs=gr.Textbox(label="Risultato della verifica", lines=8),
+    title="Verifica Autenticità Firma (Rete Siamese)",
     description=(
-        "Upload a known genuine reference signature and a questioned signature.\n\n"
-        "**Technique:** Siamese Neural Network (SigNet)\n"
-        "**Forensic use:** Bank cheques, contracts, wills.\n\n"
-        "*For production use, load pre-trained weights from [luizgh/sigver](https://github.com/luizgh/sigver).*"
+        "Carica una firma autentica di riferimento e una firma da verificare.\n\n"
+        "**Tecnica:** Rete Neurale Siamese (SigNet)\n"
+        "**Uso forense:** Assegni bancari, contratti, testamenti.\n\n"
+        "*Per uso in produzione, caricare i pesi pre-addestrati da [luizgh/sigver](https://github.com/luizgh/sigver).*"
     ),
     flagging_mode="never",
 )
@@ -317,19 +317,19 @@ sig_verify_tab = gr.Interface(
 
 def sig_detect(image: np.ndarray, conf_threshold: float) -> tuple[np.ndarray, str]:
     if image is None:
-        return image, "Please upload a document image."
+        return image, "Carica un'immagine del documento."
     try:
         yolo = get_yolo()
     except Exception as e:
         msg = (
-            "⚠️ **Model not available.**\n\n"
-            "The `tech4humans/yolov8s-signature-detector` model is gated on Hugging Face.\n\n"
-            "**To enable this tab:**\n"
-            "1. Create an account at huggingface.co\n"
-            "2. Request access at huggingface.co/tech4humans/yolov8s-signature-detector\n"
-            "3. Create a token at huggingface.co/settings/tokens\n"
-            "4. Set the environment variable `HF_TOKEN=<your_token>` before starting the app\n\n"
-            f"Error: {e}"
+            "⚠️ **Modello non disponibile.**\n\n"
+            "Il modello `tech4humans/yolov8s-signature-detector` è ad accesso limitato su Hugging Face.\n\n"
+            "**Per abilitare questa sezione:**\n"
+            "1. Crea un account su huggingface.co\n"
+            "2. Richiedi l'accesso su huggingface.co/tech4humans/yolov8s-signature-detector\n"
+            "3. Crea un token su huggingface.co/settings/tokens\n"
+            "4. Imposta la variabile d'ambiente `HF_TOKEN=<il_tuo_token>` prima di avviare l'app\n\n"
+            f"Errore: {e}"
         )
         return image, msg
     pil_img = Image.fromarray(image).convert("RGB")
@@ -358,9 +358,10 @@ def sig_detect(image: np.ndarray, conf_threshold: float) -> tuple[np.ndarray, st
             count += 1
 
     summary = (
-        f"Detected {count} signature(s) (confidence ≥ {conf_threshold:.0%})\n\n"
-        f"**Model:** `tech4humans/yolov8s-signature-detector`\n"
-        f"**Forensic use:** Automated signature extraction from legal documents."
+        f"Rilevat{'a' if count == 1 else 'e'} {count} firma{'' if count == 1 else 'e'} "
+        f"(confidenza ≥ {conf_threshold:.0%})\n\n"
+        f"**Modello:** `tech4humans/yolov8s-signature-detector`\n"
+        f"**Uso forense:** Estrazione automatica di firme da documenti legali."
     )
     return annotated, summary
 
@@ -368,19 +369,19 @@ def sig_detect(image: np.ndarray, conf_threshold: float) -> tuple[np.ndarray, st
 sig_detect_tab = gr.Interface(
     fn=sig_detect,
     inputs=[
-        gr.Image(label="Scanned document", type="numpy"),
+        gr.Image(label="Documento scansionato", type="numpy"),
         gr.Slider(minimum=0.1, maximum=0.9, value=0.3, step=0.05,
-                  label="Confidence threshold"),
+                  label="Soglia di confidenza"),
     ],
     outputs=[
-        gr.Image(label="Annotated document", type="numpy"),
-        gr.Markdown(label="Detection summary"),
+        gr.Image(label="Documento annotato", type="numpy"),
+        gr.Markdown(label="Riepilogo rilevamento"),
     ],
-    title="Signature Detection in Documents (YOLOv8)",
+    title="Rilevamento Firme nei Documenti (YOLOv8)",
     description=(
-        "Upload a scanned document image. The model will locate and highlight all signatures.\n\n"
-        "**Model:** YOLOv8 fine-tuned for signature detection\n"
-        "**Forensic use:** First step in a detect → extract → verify pipeline."
+        "Carica un'immagine di un documento scansionato. Il modello individuerà ed evidenzierà tutte le firme presenti.\n\n"
+        "**Modello:** YOLOv8 ottimizzato per il rilevamento di firme\n"
+        "**Uso forense:** Primo passo nella pipeline rileva → estrai → verifica."
     ),
     flagging_mode="never",
 )
@@ -389,12 +390,12 @@ sig_detect_tab = gr.Interface(
 # Tab 4 — Named Entity Recognition
 # ──────────────────────────────────────────────────────────────────────────────
 
-_NER_LABELS = {"PER": "Person", "ORG": "Organization", "LOC": "Location", "MISC": "Miscellaneous"}
+_NER_LABELS = {"PER": "Persona", "ORG": "Organizzazione", "LOC": "Luogo", "MISC": "Varie"}
 
 
 def ner_extract(text: str):
     if not text or not text.strip():
-        return [], "Please enter some text to analyse."
+        return [], "Inserisci del testo da analizzare."
     nlp = get_ner()
     entities = nlp(text)
 
@@ -417,9 +418,9 @@ def ner_extract(text: str):
             f"(`{e['entity_group']}`) | {e['word']} | {e['score']:.0%} |"
             for e in entities
         )
-        summary = f"| Type | Entity | Confidence |\n|------|--------|------------|\n{rows}"
+        summary = f"| Tipo | Entità | Confidenza |\n|------|--------|------------|\n{rows}"
     else:
-        summary = "No named entities found."
+        summary = "Nessuna entità trovata."
 
     return result, summary
 
@@ -427,13 +428,13 @@ def ner_extract(text: str):
 ner_tab = gr.Interface(
     fn=ner_extract,
     inputs=gr.Textbox(
-        label="Text to analyse",
+        label="Testo da analizzare",
         lines=6,
-        placeholder="Paste or type text here (e.g. transcription from the HTR tab)…",
+        placeholder="Incolla o digita il testo qui (es. trascrizione dal tab OCR Manoscritto)…",
     ),
     outputs=[
         gr.HighlightedText(
-            label="Named Entities",
+            label="Entità Nominate",
             combine_adjacent=False,
             color_map={
                 "PER": "red",
@@ -442,19 +443,19 @@ ner_tab = gr.Interface(
                 "MISC": "orange",
             },
         ),
-        gr.Markdown(label="Entity summary"),
+        gr.Markdown(label="Riepilogo entità"),
     ],
-    title="Named Entity Recognition (BERT-NER)",
+    title="Riconoscimento Entità Nominate (BERT-NER)",
     description=(
-        "Extract named entities from any text — ideal as a second step after HTR transcription.\n\n"
-        "**Model:** `Babelscape/wikineural-multilingual-ner` (multilingual, supports Italian)\n"
-        "**Entities detected:** PER (person), ORG (organization), LOC (location), MISC\n"
-        "**Forensic use:** Identify people, places and organisations mentioned in handwritten documents, "
-        "anonymous letters, contracts, and court exhibits."
+        "Estrae entità nominate da qualsiasi testo — ideale come secondo passo dopo la trascrizione OCR.\n\n"
+        "**Modello:** `Babelscape/wikineural-multilingual-ner` (multilingue, supporta l'italiano)\n"
+        "**Entità rilevate:** PER (persona), ORG (organizzazione), LOC (luogo), MISC (varie)\n"
+        "**Uso forense:** Identificare persone, luoghi e organizzazioni citati in documenti manoscritti, "
+        "lettere anonime, contratti e atti processuali."
     ),
     examples=[
-        ["John Smith signed the contract on behalf of Acme Corp in New York on 12 March 2024."],
-        ["The suspect, Maria Rossi, was last seen near the Colosseum in Rome by officers from Interpol."],
+        ["Mario Rossi ha firmato il contratto per conto di Acme S.r.l. a Milano il 12 marzo 2024."],
+        ["Il sospettato, Maria Bianchi, è stato visto l'ultima volta vicino al Colosseo a Roma da agenti dell'Interpol."],
     ],
     flagging_mode="never",
 )
@@ -465,7 +466,7 @@ ner_tab = gr.Interface(
 
 def grapho_analyse(image: np.ndarray) -> tuple[str, np.ndarray]:
     if image is None:
-        return "Please upload a handwriting image.", image
+        return "Carica un'immagine di scrittura a mano.", image
 
     gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY) if len(image.shape) == 3 else image
     _, binary = cv2.threshold(
@@ -521,35 +522,35 @@ def grapho_analyse(image: np.ndarray) -> tuple[str, np.ndarray]:
             cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 180, 255), 1)
 
     report = (
-        f"**Graphological Feature Analysis**\n\n"
-        f"| Feature | Value |\n"
-        f"|---------|-------|\n"
-        f"| Mean letter slant | {slant_mean:+.1f}° ({'right' if slant_mean > 0 else 'left' if slant_mean < 0 else 'upright'}) |\n"
-        f"| Slant variation (σ) | {slant_std:.1f}° |\n"
-        f"| Stroke pressure | {pressure_mean:.1f} / 255 |\n"
-        f"| Mean letter height | {h_mean:.1f} px |\n"
-        f"| Mean letter width | {w_mean:.1f} px |\n"
-        f"| Mean word spacing | {word_spacing:.1f} px |\n"
-        f"| Ink density | {ink_density:.2f}% |\n"
-        f"| Connected components | {len(valid)} |\n\n"
-        f"*Bounding boxes shown in the annotated image.*"
+        f"**Analisi delle Caratteristiche Grafologiche**\n\n"
+        f"| Caratteristica | Valore |\n"
+        f"|----------------|--------|\n"
+        f"| Inclinazione media lettere | {slant_mean:+.1f}° ({'destra' if slant_mean > 0 else 'sinistra' if slant_mean < 0 else 'verticale'}) |\n"
+        f"| Variazione inclinazione (σ) | {slant_std:.1f}° |\n"
+        f"| Pressione del tratto | {pressure_mean:.1f} / 255 |\n"
+        f"| Altezza media lettere | {h_mean:.1f} px |\n"
+        f"| Larghezza media lettere | {w_mean:.1f} px |\n"
+        f"| Spaziatura media parole | {word_spacing:.1f} px |\n"
+        f"| Densità inchiostro | {ink_density:.2f}% |\n"
+        f"| Componenti connesse | {len(valid)} |\n\n"
+        f"*I bounding box delle lettere sono visibili nell'immagine annotata.*"
     )
     return report, vis
 
 
 grapho_tab = gr.Interface(
     fn=grapho_analyse,
-    inputs=gr.Image(label="Handwritten text image", type="numpy"),
+    inputs=gr.Image(label="Immagine di testo manoscritto", type="numpy"),
     outputs=[
-        gr.Markdown(label="Analysis report"),
-        gr.Image(label="Annotated image (letter bounding boxes)", type="numpy"),
+        gr.Markdown(label="Rapporto di analisi"),
+        gr.Image(label="Immagine annotata (bounding box lettere)", type="numpy"),
     ],
-    title="Graphological Feature Analysis",
+    title="Analisi delle Caratteristiche Grafologiche",
     description=(
-        "Upload a handwritten text image. The tool extracts graphological metrics "
-        "including letter slant, stroke pressure, letter size, and word spacing.\n\n"
-        "**Technique:** OpenCV + classical image processing\n"
-        "**Forensic use:** Profiling, comparative analysis, expert witness support."
+        "Carica un'immagine di testo manoscritto. Lo strumento estrae metriche grafologiche "
+        "tra cui inclinazione delle lettere, pressione del tratto, dimensione e spaziatura.\n\n"
+        "**Tecnica:** OpenCV + elaborazione classica delle immagini\n"
+        "**Uso forense:** Profilazione, analisi comparativa, supporto alla perizia."
     ),
     flagging_mode="never",
 )
@@ -561,13 +562,13 @@ grapho_tab = gr.Interface(
 demo = gr.TabbedInterface(
     interface_list=[htr_tab, sig_verify_tab, sig_detect_tab, ner_tab, grapho_tab],
     tab_names=[
-        "Handwritten OCR",
-        "Signature Verification",
-        "Signature Detection",
-        "Named Entity Recognition",
-        "Graphological Analysis",
+        "OCR Manoscritto",
+        "Verifica Firma",
+        "Rilevamento Firma",
+        "Riconoscimento Entità",
+        "Analisi Grafologica",
     ],
-    title="GraphoLab — AI in Forensic Graphology",
+    title="GraphoLab — Intelligenza Artificiale in Grafologia Forense",
 )
 
 if __name__ == "__main__":
