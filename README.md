@@ -14,6 +14,7 @@ A collection of AI-powered demo labs showing how machine learning and computer v
 | 04 | [Signature Detection](notebooks/04_signature_detection_yolo.ipynb) | Object Detection | YOLOv8 (tech4humans) |
 | 05 | [Writer Identification](notebooks/05_writer_identification.ipynb) | HOG + SVM | scikit-learn |
 | 06 | [Graphological Analysis](notebooks/06_graphological_feature_analysis.ipynb) | Image Processing | OpenCV |
+| 07 | [Named Entity Recognition](notebooks/07_named_entity_recognition.ipynb) | Token Classification | `Babelscape/wikineural-multilingual-ner` |
 
 See [docs/NOTEBOOKS_GUIDE.md](docs/NOTEBOOKS_GUIDE.md) for a full description of each lab.
 
