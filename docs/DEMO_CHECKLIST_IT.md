@@ -1,6 +1,6 @@
 # GraphoLab — Lista della Spesa per la Demo
 
-Tutto ciò che serve per eseguire tutti e sei i notebook GraphoLab dall'inizio alla fine: quali modelli AI vengono scaricati automaticamente e quali immagini campione devi fornire tu.
+Tutto ciò che serve per eseguire tutti e sette i notebook GraphoLab dall'inizio alla fine: quali modelli AI vengono scaricati automaticamente e quali immagini campione devi fornire tu.
 
 ---
 
@@ -10,6 +10,7 @@ Tutto ciò che serve per eseguire tutti e sei i notebook GraphoLab dall'inizio a
 |------|------|------|
 | Ambiente Python | locale o Docker | vedi [NOTEBOOKS_GUIDE_IT.md](NOTEBOOKS_GUIDE_IT.md) |
 | `requirements.txt` installato | — | `pip install -r requirements.txt` |
+| Pesi SigNet | `models/signet.pth` | download manuale — vedi sezione Lab 03 |
 | Immagini campione | `data/samples/` | vedi le sezioni per lab qui sotto |
 | Modelli AI | scaricati automaticamente | connessione internet necessaria al primo avvio |
 
@@ -17,15 +18,23 @@ Tutto ciò che serve per eseguire tutti e sei i notebook GraphoLab dall'inizio a
 
 ## Modelli AI — Scaricati Automaticamente
 
-Non è necessario scaricare pesi manualmente. Tutti i modelli vengono recuperati al primo avvio e memorizzati nella cache locale (o nel volume Docker `grapholab-hf-cache`).
+Tutti i modelli Hugging Face vengono recuperati al primo avvio e memorizzati nella cache locale (o nel volume Docker `grapholab-hf-cache`).
 
 | Modello | Scaricato da | Dimensione | Cache |
 |---------|-------------|-----------|-------|
-| **ResNet-18** (pesi ImageNet) | `torchvision` | ~45 MB | `~/.cache/torch/hub/` |
 | **TrOCR** (`microsoft/trocr-base-handwritten`) | `transformers` | ~400 MB | `~/.cache/huggingface/` |
 | **Rilevatore firme YOLOv8s** (`tech4humans/yolov8s-signature-detector`) | `huggingface_hub` | ~22 MB | `~/.cache/huggingface/` |
+| **WikiNEural NER** (`Babelscape/wikineural-multilingual-ner`) | `transformers` | ~700 MB | `~/.cache/huggingface/` |
 
-> **È necessaria una connessione internet al primo avvio dei Lab 02, 03 e 04.** Le esecuzioni successive utilizzano i modelli in cache.
+> **È necessaria una connessione internet al primo avvio dei Lab 02, 04 e 07.** Le esecuzioni successive utilizzano i modelli in cache.
+
+## Modelli AI — Download Manuale Richiesto
+
+| Modello | File | Dimensione | Fonte |
+|---------|------|-----------|-------|
+| **SigNet** (pre-addestrato su GPDS) | `models/signet.pth` | ~63 MB | [luizgh/sigver](https://github.com/luizgh/sigver) |
+
+Scarica `signet.pth` dal repository sigver e inseriscilo nella directory `models/` prima di eseguire il Lab 03.
 
 ---
 
@@ -42,30 +51,29 @@ Inserisci tutte le immagini in `data/samples/`. Quando le immagini reali mancano
 
 | File | Descrizione |
 |------|-------------|
-| `handwritten_text_01.png` | Una riga o paragrafo di testo manoscritto |
-| `handwritten_text_02.png` | (opzionale) Secondo campione per la demo in batch |
+| `handwritten_text_01.png` | Una riga di testo manoscritto |
+| `handwritten_text_02.png` | (opzionale) Secondo campione su riga singola |
+| `handwritten_multiline_01.png` | Un documento manoscritto multiriga (per la pipeline HTR→NER) |
 
 **Requisiti:**
 - Scansione o foto nitida di testo manoscritto
 - Risoluzione consigliata: 300 DPI o superiore
 - Sfondo bianco o chiaro, inchiostro scuro
-- Una singola riga o un breve paragrafo funzionano meglio
+- TrOCR è un modello a livello di riga; le immagini multiriga vengono suddivise automaticamente per proiezione orizzontale prima dell'inferenza
 
 **Confronto con trascrizione nota (opzionale):** se disponi della trascrizione esatta del testo manoscritto, puoi calcolare il Character Error Rate (CER) nella sezione opzionale del Lab 02.
 
 ---
 
-### Lab 03 — Verifica della Firma (ResNet-18)
+### Lab 03 — Verifica della Firma (SigNet)
 
 | File | Descrizione |
 |------|-------------|
-| `signature_genuine_01.png` | **Firma di riferimento** — autentica nota |
-| `signature_genuine_02.png` | Seconda firma autentica della stessa persona |
-| `signature_forged_01.png` | Firma contraffatta o contestata |
+| `genuine_N_1.png` | **Firma di riferimento** — autentica nota (scrittore N, campione 1) |
+| `genuine_N_2.png` | Seconda firma autentica dello stesso scrittore |
+| `forged_N_M.png` | Firma contraffatta (scrittore N, falsificazione M) |
 
-Per il **grafico di distribuzione** (Demo 5), aggiungi altri file con lo stesso schema di denominazione:
-- `signature_genuine_03.png`, `signature_genuine_04.png`, … (altri campioni autentici)
-- `signature_forged_02.png`, `signature_forged_03.png`, … (altri campioni contraffatti)
+Ripeti per ogni scrittore che vuoi dimostrare (es. N = 1, 2, 3, …).
 
 **Requisiti:**
 - Firme isolate (nessun testo del documento circostante)
@@ -73,7 +81,9 @@ Per il **grafico di distribuzione** (Demo 5), aggiungi altri file con lo stesso 
 - Qualità di scansione uniforme tra i campioni della stessa persona
 - Risoluzione consigliata: 300 DPI o superiore
 
-> **Minimo per una demo significativa:** 1 firma di riferimento + 1 copia autentica + 1 contraffatta. Il modello (pesi ImageNet di ResNet-18) funziona immediatamente — nessun addestramento richiesto.
+> **Campioni demo pre-selezionati:** il repository include coppie curate dal database di firme **CEDAR**. Queste coppie sono state pre-scansionate con SigNet per verificare che il modello classifichi correttamente la contraffazione (distanza coseno > 0.35). Gli scrittori 1–5 corrispondono agli scrittori CEDAR 51, 26, 34, 32 e 21.
+
+> **Pesi SigNet richiesti:** scarica `models/signet.pth` da [luizgh/sigver](https://github.com/luizgh/sigver) prima di eseguire questo lab.
 
 ---
 
@@ -139,17 +149,29 @@ Non sono necessari file aggiuntivi se i campioni del Lab 02 sono già presenti.
 
 ---
 
+### Lab 07 — Riconoscimento Entità Nominate (NER)
+
+**Nessun file immagine richiesto.** Il modello NER opera direttamente su stringhe di testo.
+
+- **Demo 1 & 2:** testi di esempio italiani e inglesi inclusi nel notebook — nessun file necessario.
+- **Demo 3 (pipeline HTR→NER):** carica `handwritten_multiline_01.png` (condiviso con il Lab 02).
+
+Il modello `Babelscape/wikineural-multilingual-ner` (~700 MB) viene scaricato automaticamente al primo avvio. Supporta 9 lingue tra cui italiano e inglese.
+
+---
+
 ## Riepilogo delle Convenzioni di Denominazione
 
 ```
 data/samples/
   handwritten_text_01.png          # Lab 02, 06
   handwritten_text_02.png          # Lab 02, 06 (opzionale)
-  signature_genuine_01.png         # Lab 03 — riferimento
-  signature_genuine_02.png         # Lab 03 — copia autentica
-  signature_genuine_03.png         # Lab 03 — grafico distribuzione (opzionale)
-  signature_forged_01.png          # Lab 03 — contraffatta / contestata
-  signature_forged_02.png          # Lab 03 — grafico distribuzione (opzionale)
+  handwritten_multiline_01.png     # Lab 02, 07 (HTR multiriga + pipeline NER)
+  genuine_1_1.png                  # Lab 03 — scrittore 1, riferimento
+  genuine_1_2.png                  # Lab 03 — scrittore 1, secondo campione autentico
+  forged_1_1.png                   # Lab 03 — scrittore 1, contraffatta
+  genuine_2_1.png                  # Lab 03 — scrittore 2, riferimento
+  ...
   document_with_signature_01.png   # Lab 04
   writer_01/sample_01.png          # Lab 05
   writer_01/sample_02.png          # Lab 05
@@ -160,25 +182,26 @@ data/samples/
 
 ## Demo Minima Funzionante (5 immagini)
 
-Per una demo rapida che copra i Lab 02, 03, 04 e 06 con un insieme minimo di immagini:
+Per una demo rapida che copra i Lab 02, 03, 04, 06 e 07 con un insieme minimo di immagini:
 
 1. `handwritten_text_01.png` — per i Lab 02 e 06
-2. `signature_genuine_01.png` — firma di riferimento
-3. `signature_genuine_02.png` — seconda firma autentica
-4. `signature_forged_01.png` — firma contraffatta
+2. `handwritten_multiline_01.png` — per la pipeline HTR→NER del Lab 07
+3. `genuine_1_1.png` — firma di riferimento
+4. `forged_1_1.png` — firma contraffatta
 5. `document_with_signature_01.png` — pagina documento per il Lab 04
 
-Il Lab 01 non richiede nulla. Il Lab 05 richiede le sottodirectory per scrittore (non coperte da questo set minimo).
+Il Lab 01 non richiede nulla. Il Lab 05 richiede le sottodirectory per scrittore (non coperte da questo set minimo). Le Demo 1 & 2 del Lab 07 non richiedono alcun file.
 
 ---
 
 ## Checklist Prima di Avviare i Laboratori
 
 - [ ] Ambiente Python creato e `requirements.txt` installato
-- [ ] Connessione internet disponibile (download modelli al primo avvio)
+- [ ] Connessione internet disponibile (download modelli al primo avvio: TrOCR ~400 MB, WikiNEural NER ~700 MB, YOLOv8 ~22 MB)
+- [ ] `models/signet.pth` scaricato da [luizgh/sigver](https://github.com/luizgh/sigver)
 - [ ] Directory `data/samples/` presente
-- [ ] Immagini di testo manoscritto inserite (`handwritten_text_*.png`)
-- [ ] Immagini delle firme inserite (`signature_genuine_*.png`, `signature_forged_*.png`)
+- [ ] Immagini di testo manoscritto inserite (`handwritten_text_*.png`, `handwritten_multiline_01.png`)
+- [ ] Immagini delle firme inserite (`genuine_N_M.png`, `forged_N_M.png`)
 - [ ] Scansione del documento inserita (`document_with_signature_*.png`)
 - [ ] Sottodirectory degli scrittori popolate (`writer_XX/sample_YY.png`) — per il Lab 05
 - [ ] JupyterLab avviato (`jupyter lab` oppure `docker compose up jupyter`)

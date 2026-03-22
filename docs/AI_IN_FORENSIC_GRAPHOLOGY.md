@@ -49,7 +49,7 @@ None of this eliminates the need for human expertise. What AI provides is an add
 
 ---
 
-## Five Areas of Application
+## Six Areas of Application
 
 ### 1. Automatic Transcription of Handwritten Text
 
@@ -120,6 +120,29 @@ AI tools can automatically extract and quantify the following characteristics:
 - **Baseline regularity:** how closely letters follow the horizontal baseline, which can vary with fatigue or stress.
 
 These measurements are presented as a visual dashboard, making it straightforward to compare two samples side by side and highlight where they differ.
+
+---
+
+### 6. Named Entity Recognition in Handwritten Documents
+
+A transcribed document often contains names, places, and organisations that are directly relevant to an investigation. Manually reading through long transcripts to identify these entities is time-consuming and error-prone.
+
+*Named Entity Recognition* (NER) is an AI technique that automatically identifies and classifies named entities within a text — persons (PER), organisations (ORG), locations (LOC), and other relevant categories — using models trained on large multilingual corpora.
+
+In a forensic workflow, NER is applied as the second step after HTR transcription:
+
+1. **HTR:** handwritten image → transcribed text
+2. **NER:** transcribed text → structured list of entities with confidence scores
+
+This enables investigators to:
+
+- Instantly identify all persons, places, and organisations mentioned in an anonymous letter or contested document
+- Build a relationship graph linking entities across a large document corpus
+- Screen thousands of pages for the presence of specific names without reading every word
+
+Modern multilingual NER models support Italian, English, German, Spanish, and other languages, making them well-suited for international forensic investigations.
+
+What AI does **not** do: NER identifies entities by their linguistic form, not by their legal significance. The examiner must interpret which entities are relevant and how they relate to the case.
 
 ---
 

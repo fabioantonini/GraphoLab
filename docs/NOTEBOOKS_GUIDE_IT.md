@@ -11,10 +11,11 @@ La grafologia forense è l'esame scientifico della scrittura a mano e delle firm
 | Compito | Approccio AI | Applicazione Forense |
 |---------|-------------|----------------------|
 | Trascrizione di testo manoscritto | Transformer OCR (TrOCR) | Lettere anonime, documenti storici |
-| Autenticità della firma | Siamese Neural Network | Assegni, contratti, testamenti |
+| Autenticità della firma | Siamese Neural Network (SigNet) | Assegni, contratti, testamenti |
 | Localizzazione firma nei documenti | Object Detection (YOLOv8) | Pipeline di analisi documentale |
 | Identificazione dello scrittore | Estrazione feature + classificatore | Paternità contestata |
 | Analisi caratteristiche grafologiche | OpenCV + ML | Profiling, analisi comparativa |
+| Riconoscimento entità nominate | Classificazione token (BERT-NER) | Persone, luoghi, organizzazioni nei documenti |
 
 ---
 
@@ -85,7 +86,9 @@ Utilizza una **Siamese Neural Network** (architettura SigNet) per confrontare du
 - Autenticazione di firme su contratti, testamenti e atti legali
 - Rilevamento di firme tracciate o riprodotte digitalmente
 
-**Prerequisiti:** `torch`, `torchvision`, `Pillow`
+**Prerequisiti:** `torch`, `scikit-image`, `Pillow`
+
+**Nota:** I pesi SigNet pre-addestrati (`models/signet.pth`) sono stati addestrati sul dataset di firme **GPDS**. I campioni demo provengono dal database **CEDAR** (`data/samples/genuine_N_M.png` / `forged_N_M.png`) e sono stati pre-selezionati affinché il modello rilevi correttamente la contraffazione.
 
 **Riferimento:** [luizgh/sigver](https://github.com/luizgh/sigver) — implementazione SigNet e pesi pre-addestrati.
 
@@ -175,18 +178,46 @@ Estrae e visualizza automaticamente le caratteristiche grafologiche di un campio
 
 ---
 
+## Lab 07 — Riconoscimento Entità Nominate (NER)
+
+**File:** `notebooks/07_named_entity_recognition.ipynb`
+
+Utilizza un modello **BERT-NER** multilingue (`Babelscape/wikineural-multilingual-ner`) per estrarre automaticamente entità nominate — persone, organizzazioni, luoghi — da qualsiasi testo. Ideale come secondo passo dopo la trascrizione HTR.
+
+**Cosa imparerai:**
+- Come funziona la classificazione token BERT (schema BIO)
+- Come caricare ed eseguire una pipeline NER multilingue tramite `transformers`
+- Come visualizzare gli span di entità con evidenziazione colorata
+- Come costruire una pipeline completa HTR → NER per l'analisi di documenti manoscritti
+
+**Flusso della demo:**
+1. NER su testo italiano (es. testamento o dichiarazione)
+2. NER su testo inglese (supporto multilingue)
+3. Pipeline completa: immagine manoscritto → trascrizione TrOCR → estrazione entità NER
+4. Analisi della distribuzione delle entità e della confidenza
+
+**Casi d'uso forensi:**
+- Identificare automaticamente persone, luoghi e organizzazioni in documenti manoscritti
+- Analizzare lettere anonime alla ricerca di nomi propri (nomi, indirizzi)
+- Costruire un grafo delle relazioni tra entità in un corpus documentale
+
+**Prerequisiti:** `transformers`, `torch`, `opencv-python`, `Pillow`, `matplotlib`
+
+---
+
 ## Demo Interattiva (Gradio)
 
 **File:** `app/grapholab_demo.py`
 
-Un'applicazione Gradio multi-tab accessibile da browser che aggrega le quattro principali funzionalità AI:
+Un'applicazione Gradio multi-tab accessibile da browser (completamente in italiano) che aggrega le cinque principali funzionalità AI:
 
 | Tab | Funzionalità |
 |-----|-------------|
-| Handwritten OCR | Carica un'immagine → testo trascritto |
-| Signature Verification | Carica due firme → verdetto autentica / contraffatta |
-| Signature Detection | Carica un documento → immagine annotata con firme rilevate |
-| Graphological Analysis | Carica testo manoscritto → dashboard di metriche visive |
+| OCR Manoscritto | Carica un'immagine (riga singola o multi-riga) → testo trascritto |
+| Verifica Firma | Carica due firme → verdetto autentica / falsa |
+| Rilevamento Firma | Carica un documento → immagine annotata con firme rilevate |
+| Riconoscimento Entità | Inserisci testo → entità evidenziate + tabella riepilogativa |
+| Analisi Grafologica | Carica testo manoscritto → dashboard di metriche visive |
 
 **Avvio in locale:**
 

@@ -11,10 +11,11 @@ Forensic graphology is the scientific examination of handwriting and signatures 
 | Task | AI Approach | Forensic Application |
 |------|-------------|----------------------|
 | Handwritten text transcription | Transformer OCR (TrOCR) | Anonymous letters, historical documents |
-| Signature authenticity | Siamese Neural Network | Checks, contracts, wills |
+| Signature authenticity | Siamese Neural Network (SigNet) | Checks, contracts, wills |
 | Signature location in documents | Object Detection (YOLOv8) | Document processing pipelines |
 | Writer identification | Feature extraction + classifier | Disputed authorship |
 | Graphological feature analysis | OpenCV + ML | Profiling, comparative analysis |
+| Named entity recognition | Token classification (BERT-NER) | People, places, orgs in documents |
 
 ---
 
@@ -85,7 +86,9 @@ Uses a **Siamese Neural Network** (SigNet architecture) to compare two signature
 - Authentication of signatures on contracts, wills, and legal deeds
 - Detection of traced or digitally reproduced signatures
 
-**Prerequisites:** `torch`, `torchvision`, `Pillow`
+**Prerequisites:** `torch`, `scikit-image`, `Pillow`
+
+**Note:** Pre-trained SigNet weights (`models/signet.pth`) were trained on the **GPDS** signature dataset. Demo sample pairs are sourced from the **CEDAR** signature database (`data/samples/genuine_N_M.png` / `forged_N_M.png`) and pre-selected so the model correctly detects the forgery.
 
 **Reference:** [luizgh/sigver](https://github.com/luizgh/sigver) — SigNet implementation and pre-trained weights.
 
@@ -175,18 +178,46 @@ Automatically extracts and visualises graphological features from a handwritten 
 
 ---
 
+## Lab 07 — Named Entity Recognition (NER)
+
+**File:** `notebooks/07_named_entity_recognition.ipynb`
+
+Uses a multilingual **BERT-NER** model (`Babelscape/wikineural-multilingual-ner`) to automatically extract named entities — persons, organisations, and locations — from text. Ideal as a second step after HTR transcription.
+
+**What you will learn:**
+- How BERT-based token classification works (BIO tagging scheme)
+- How to load and run a multilingual NER pipeline via `transformers`
+- How to visualise entity spans with colour-coded inline highlighting
+- How to build a complete HTR → NER pipeline for handwritten document analysis
+
+**Demo flow:**
+1. Run NER on an Italian legal text (e.g. a will or declaration)
+2. Run NER on an English text (multilingual support)
+3. Full pipeline: load a handwritten image → TrOCR transcription → NER entity extraction
+4. Analyse entity distribution and confidence scores
+
+**Forensic use cases:**
+- Automatically identify persons, places, and organisations mentioned in handwritten documents
+- Screen anonymous letters for proper nouns (names, addresses)
+- Build a relationship graph between entities across a document corpus
+
+**Prerequisites:** `transformers`, `torch`, `opencv-python`, `Pillow`, `matplotlib`
+
+---
+
 ## Interactive Demo (Gradio)
 
 **File:** `app/grapholab_demo.py`
 
-A browser-based multi-tab Gradio application aggregating the four main AI capabilities:
+A browser-based multi-tab Gradio application (fully in Italian) aggregating the five main AI capabilities:
 
 | Tab | Functionality |
 |-----|--------------|
-| Handwritten OCR | Upload an image → transcribed text |
-| Signature Verification | Upload two signatures → genuine / forged verdict |
-| Signature Detection | Upload a document → annotated image with detected signatures |
-| Graphological Analysis | Upload handwritten text → visual metrics dashboard |
+| OCR Manoscritto | Upload an image (single or multi-line) → transcribed text |
+| Verifica Firma | Upload two signatures → genuine / forged verdict |
+| Rilevamento Firma | Upload a document → annotated image with detected signatures |
+| Riconoscimento Entità | Enter text → colour-coded named entities + summary table |
+| Analisi Grafologica | Upload handwritten text → visual metrics dashboard |
 
 **Running locally:**
 
@@ -229,9 +260,10 @@ Demo images are provided in `data/samples/`:
 
 | File | Used in |
 |------|---------|
-| `handwritten_text_*.png` | Labs 02, 05, 06 |
-| `signature_genuine_*.png` | Labs 03, 04 |
-| `signature_forged_*.png` | Lab 03 |
+| `handwritten_text_01.png` | Labs 02, 06, 07 (single-line HTR demo) |
+| `handwritten_multiline_01.png` | Labs 02, 07 (multi-line HTR + NER pipeline) |
+| `genuine_N_M.png` | Lab 03 (CEDAR reference signatures, N=writer, M=sample) |
+| `forged_N_M.png` | Lab 03 (CEDAR forgeries, pre-selected for model detectability) |
 | `document_with_signature_*.png` | Lab 04 |
 
-You can replace or supplement these with your own images to experiment with real-world cases.
+Signature samples (`genuine_*`, `forged_*`) are sourced from the **CEDAR** signature database and pre-selected so that SigNet correctly classifies the forgery. You can replace or supplement these with your own images to experiment with real-world cases.

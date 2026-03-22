@@ -49,7 +49,7 @@ Nulla di tutto questo elimina la necessità dell'esperienza umana. Ciò che l'AI
 
 ---
 
-## Cinque Aree di Applicazione
+## Sei Aree di Applicazione
 
 ### 1. Trascrizione Automatica di Testi Manoscritti
 
@@ -120,6 +120,29 @@ Gli strumenti AI possono estrarre e quantificare automaticamente le seguenti car
 - **Regolarità del rigo di base:** quanto le lettere seguono la linea di base orizzontale, variabile con la stanchezza o lo stress.
 
 Queste misurazioni vengono presentate come una dashboard visiva, che rende immediato il confronto tra due campioni e l'evidenziazione delle differenze.
+
+---
+
+### 6. Riconoscimento delle Entità Nominate nei Documenti Manoscritti
+
+Un documento trascritto contiene spesso nomi di persone, luoghi e organizzazioni direttamente rilevanti per un'indagine. Leggere manualmente trascrizioni estese per identificare queste entità è lento e soggetto a omissioni.
+
+Il *Riconoscimento delle Entità Nominate* (NER — Named Entity Recognition) è una tecnica AI che identifica e classifica automaticamente le entità nominate all'interno di un testo — persone (PER), organizzazioni (ORG), luoghi (LOC) e altre categorie pertinenti — utilizzando modelli addestrati su grandi corpus multilingue.
+
+In un flusso di lavoro forense, il NER viene applicato come secondo passo dopo la trascrizione HTR:
+
+1. **HTR:** immagine manoscritta → testo trascritto
+2. **NER:** testo trascritto → lista strutturata di entità con punteggi di confidenza
+
+Questo consente agli investigatori di:
+
+- Identificare istantaneamente tutte le persone, i luoghi e le organizzazioni menzionati in una lettera anonima o in un documento contestato
+- Costruire un grafo delle relazioni che colleghi le entità attraverso un corpus documentale esteso
+- Esaminare migliaia di pagine alla ricerca di nomi specifici senza doverle leggere integralmente
+
+I moderni modelli NER multilingue supportano italiano, inglese, tedesco, spagnolo e altre lingue, rendendoli adatti a indagini forensi internazionali.
+
+Cosa l'AI **non** fa: il NER identifica le entità in base alla loro forma linguistica, non alla loro rilevanza giuridica. L'interpretazione di quali entità siano pertinenti e come si colleghino al caso resta compito del perito.
 
 ---
 
