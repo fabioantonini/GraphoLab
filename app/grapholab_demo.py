@@ -272,52 +272,149 @@ htr_tab = gr.Interface(
 # Tab 2 — Signature Verification
 # ──────────────────────────────────────────────────────────────────────────────
 
-def sig_verify(ref_image: np.ndarray, query_image: np.ndarray) -> str:
+_SIG_SAMPLES = ROOT / "data" / "samples"
+
+
+def _sig_ex(name: str) -> str | None:
+    p = _SIG_SAMPLES / name
+    return str(p) if p.exists() else None
+
+
+def sig_verify(
+    ref_image: np.ndarray,
+    ref_image2: np.ndarray | None,
+    query_image: np.ndarray,
+) -> tuple[str, np.ndarray | None]:
     if ref_image is None or query_image is None:
-        return "Carica entrambe le immagini: la firma di riferimento e quella da verificare."
+        return "Carica la firma di riferimento e quella da verificare.", None
+
     model = get_signet()
-    ref_pil = Image.fromarray(ref_image)
-    query_pil = Image.fromarray(query_image)
-    t_ref = preprocess_signature(ref_pil)
-    t_query = preprocess_signature(query_pil)
+
     with torch.no_grad():
-        emb_ref = model.forward_once(t_ref)
-        emb_query = model.forward_once(t_query)
-    cosine_sim = F.cosine_similarity(emb_ref, emb_query).item()
+        emb_ref1 = model.forward_once(preprocess_signature(Image.fromarray(ref_image)))
+        if ref_image2 is not None:
+            emb_ref2 = model.forward_once(preprocess_signature(Image.fromarray(ref_image2)))
+            mean_ref = F.normalize(emb_ref1 + emb_ref2, p=2, dim=1)
+            n_refs = 2
+        else:
+            mean_ref = emb_ref1
+            n_refs = 1
+        emb_query = model.forward_once(preprocess_signature(Image.fromarray(query_image)))
+
+    cosine_sim = F.cosine_similarity(mean_ref, emb_query).item()
     cosine_dist = 1.0 - cosine_sim
-    confidence = max(0.0, min(1.0, 1.0 - cosine_dist / 2.0))
     verdict = "AUTENTICA ✓" if cosine_dist < SIG_THRESHOLD else "FALSA ✗"
+    color = "#2ca02c" if cosine_dist < SIG_THRESHOLD else "#d62728"
 
     weights_note = (
-        "Pesi SigNet pre-addestrati caricati (luizgh/sigver — dataset GPDS)."
+        "Modello: SigNet — pesi pre-addestrati GPDS (luizgh/sigver)."
         if _signet_pretrained else
-        "ATTENZIONE: pesi casuali — i risultati non sono significativi.\n"
+        "⚠️ ATTENZIONE: pesi casuali — risultati non significativi.\n"
         "Scarica signet.pth da luizgh/sigver e posizionalo in models/signet.pth."
     )
-    return (
+    report = (
         f"Esito: {verdict}\n"
-        f"Confidenza: {confidence:.1%}\n"
         f"Similarità coseno: {cosine_sim:.4f}\n"
-        f"Distanza coseno: {cosine_dist:.4f}\n"
-        f"Soglia: {SIG_THRESHOLD}\n\n"
-        f"{weights_note}"
+        f"Distanza coseno:   {cosine_dist:.4f}  (soglia: {SIG_THRESHOLD})\n"
+        f"Riferimenti usati: {n_refs}"
+        + (" (embedding mediato)" if n_refs > 1 else "") + "\n\n"
+        + weights_note
     )
+
+    # ── Matplotlib visualisation ──────────────────────────────────────────────
+    n_img_panels = 2 + (1 if ref_image2 is not None else 0)
+    width_ratios = ([1] * n_img_panels) + [1.4]
+    fig, axes = plt.subplots(
+        1, n_img_panels + 1,
+        figsize=(3.2 * (n_img_panels + 1), 3.2),
+        gridspec_kw={"width_ratios": width_ratios},
+    )
+
+    panels = [ref_image]
+    labels = ["Rif. 1"]
+    if ref_image2 is not None:
+        panels.append(ref_image2)
+        labels.append("Rif. 2")
+    panels.append(query_image)
+    labels.append("Da verificare")
+
+    for ax, img, lbl in zip(axes[:-1], panels, labels):
+        ax.imshow(img, cmap="gray" if img.ndim == 2 else None)
+        ax.set_title(lbl, fontsize=10)
+        ax.axis("off")
+
+    # Gauge panel
+    ax_g = axes[-1]
+    ax_g.set_xlim(0, 1)
+    ax_g.set_ylim(0, 1)
+    ax_g.axis("off")
+
+    # Verdict text
+    ax_g.text(0.5, 0.82, verdict, ha="center", va="center",
+              fontsize=14, fontweight="bold", color=color,
+              transform=ax_g.transAxes)
+
+    # Gauge bar (distance from 0 to 1)
+    bar_ax = fig.add_axes([
+        axes[-1].get_position().x0 + 0.01,
+        axes[-1].get_position().y0 + 0.12,
+        axes[-1].get_position().width - 0.02,
+        0.18,
+    ])
+    bar_ax.barh([0], [cosine_dist], color=color, alpha=0.75, height=0.6)
+    bar_ax.barh([0], [1.0 - cosine_dist], left=cosine_dist,
+                color="#cccccc", alpha=0.4, height=0.6)
+    bar_ax.axvline(SIG_THRESHOLD, color="black", linestyle="--", linewidth=1.2)
+    bar_ax.set_xlim(0, 1)
+    bar_ax.set_ylim(-0.5, 0.5)
+    bar_ax.set_yticks([])
+    bar_ax.set_xticks([0, SIG_THRESHOLD, 1])
+    bar_ax.set_xticklabels(["0", f"soglia\n{SIG_THRESHOLD}", "1"], fontsize=7)
+    bar_ax.set_xlabel(f"Distanza coseno: {cosine_dist:.3f}", fontsize=8)
+
+    plt.suptitle("Verifica Autenticità Firma — SigNet", fontsize=11, fontweight="bold")
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=130, bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
+    chart = np.array(Image.open(buf))
+
+    return report, chart
+
+
+_sig_examples = []
+for _n in ["1", "2", "3"]:
+    _r1 = _sig_ex(f"genuine_{_n}_1.png")
+    _r2 = _sig_ex(f"genuine_{_n}_2.png")
+    _forg = _sig_ex(f"forged_{_n}_1.png")
+    if _r1 and _r2 and _forg:
+        _sig_examples.append([_r1, _r2, _forg])       # FALSA con 2 refs
+    if _n == "1" and _r1 and _r2:
+        _sig_examples.append([_r1, None, _r2])         # AUTENTICA con 1 ref
 
 
 sig_verify_tab = gr.Interface(
     fn=sig_verify,
     inputs=[
-        gr.Image(label="Firma di riferimento (autentica nota)", type="numpy"),
+        gr.Image(label="Firma di riferimento 1 (autentica nota)", type="numpy"),
+        gr.Image(label="Firma di riferimento 2 — opzionale (migliora l'accuratezza)", type="numpy"),
         gr.Image(label="Firma da verificare", type="numpy"),
     ],
-    outputs=gr.Textbox(label="Risultato della verifica", lines=8),
-    title="Verifica Autenticità Firma (Rete Siamese)",
+    outputs=[
+        gr.Textbox(label="Risultato della verifica", lines=8),
+        gr.Image(label="Confronto visivo", type="numpy"),
+    ],
+    title="Verifica Autenticità Firma (SigNet — Rete Siamese)",
     description=(
-        "Carica una firma autentica di riferimento e una firma da verificare.\n\n"
-        "**Tecnica:** Rete Neurale Siamese (SigNet)\n"
-        "**Uso forense:** Assegni bancari, contratti, testamenti.\n\n"
-        "*Per uso in produzione, caricare i pesi pre-addestrati da [luizgh/sigver](https://github.com/luizgh/sigver).*"
+        "Carica una o due firme autentiche di riferimento e una firma da verificare.\n\n"
+        "**Tecnica:** SigNet — CNN siamese addestrata su dataset GPDS (Hafemann 2017)\n"
+        "**Multi-riferimento:** se fornisci due riferimenti, gli embedding vengono mediati "
+        "per ridurre la varianza naturale della firma\n"
+        "**Uso forense:** Assegni bancari, contratti, testamenti, documenti d'identità"
     ),
+    examples=_sig_examples if _sig_examples else None,
     flagging_mode="never",
 )
 
