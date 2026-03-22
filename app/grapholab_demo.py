@@ -252,7 +252,8 @@ htr_tab = gr.Interface(
         "**Forensic use:** Anonymous letters, historical documents, court exhibits."
     ),
     examples=[
-        [str(ROOT / "data" / "samples" / "handwritten_text_01.png")]
+        [str(ROOT / "data" / "samples" / "handwritten_text_01.png")],
+        [str(ROOT / "data" / "samples" / "handwritten_multiline_01.png")],
     ] if (ROOT / "data" / "samples" / "handwritten_text_01.png").exists() else [],
     flagging_mode="never",
 )
