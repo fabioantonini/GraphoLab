@@ -209,3 +209,6 @@ __marimo__/
 # Generated presentation exports
 *.pdf
 *.pptx
+
+# CEDAR dataset — troppo grande per il repo (2640 immagini, 242 MB .rar)
+data/cedar/
