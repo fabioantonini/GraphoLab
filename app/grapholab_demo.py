@@ -255,11 +255,25 @@ htr_tab = gr.Interface(
     fn=htr_transcribe,
     inputs=gr.Image(label="Immagine di testo manoscritto", type="numpy"),
     outputs=gr.Textbox(label="Trascrizione", lines=8),
-    title="Riconoscimento Testo Manoscritto (TrOCR)",
+    title="Riconoscimento Testo Manoscritto",
     description=(
-        "Carica un'immagine di testo scritto a mano. Il modello la trascriverà automaticamente.\n\n"
-        "**Modello:** `microsoft/trocr-base-handwritten` (Hugging Face)\n"
-        "**Uso forense:** Lettere anonime, documenti storici, atti processuali."
+        "Carica un'immagine di testo scritto a mano: il sistema lo convertirà automaticamente "
+        "in testo digitale, come farebbe un dattilografo molto veloce. "
+        "Funziona sia su immagini a riga singola che su documenti con più righe "
+        "(le righe vengono separate automaticamente prima dell'analisi).\n\n"
+        "**Quando usarlo:** lettere anonime, documenti storici, verbali scritti a mano.\n\n"
+        "*Tecnologia: modello di riconoscimento ottico della scrittura a mano "
+        "(`microsoft/trocr-base-handwritten`)*"
+    ),
+    article=(
+        "### Come leggere il risultato\n"
+        "Il testo trascritto appare nella casella a destra. "
+        "La qualità dipende dalla nitidezza dell'immagine: scrittura chiara su sfondo "
+        "bianco dà i migliori risultati. Risoluzioni consigliate: 300 DPI o superiore.\n\n"
+        "### Cosa questo strumento non fa\n"
+        "Trascrive le parole così come le vede — non interpreta il significato del testo "
+        "né identifica chi lo ha scritto. Può commettere errori su lettere ambigue o "
+        "grafie molto personali. La trascrizione è un punto di partenza, non un prodotto finito."
     ),
     examples=[
         [str(ROOT / "data" / "samples" / "handwritten_text_01.png")],
@@ -406,13 +420,30 @@ sig_verify_tab = gr.Interface(
         gr.Textbox(label="Risultato della verifica", lines=8),
         gr.Image(label="Confronto visivo", type="numpy"),
     ],
-    title="Verifica Autenticità Firma (SigNet — Rete Siamese)",
+    title="Verifica Autenticità Firma",
     description=(
-        "Carica una o due firme autentiche di riferimento e una firma da verificare.\n\n"
-        "**Tecnica:** SigNet — CNN siamese addestrata su dataset GPDS (Hafemann 2017)\n"
-        "**Multi-riferimento:** se fornisci due riferimenti, gli embedding vengono mediati "
-        "per ridurre la varianza naturale della firma\n"
-        "**Uso forense:** Assegni bancari, contratti, testamenti, documenti d'identità"
+        "Confronta una firma autentica nota con una firma da esaminare. "
+        "Il sistema misura quanto le due firme si assomigliano nello stile visivo "
+        "e produce un giudizio accompagnato da un grafico.\n\n"
+        "Puoi caricare fino a **due firme di riferimento**: usarne due riduce il rischio "
+        "di errore dovuto alla naturale variabilità della stessa firma nel tempo.\n\n"
+        "**Quando usarlo:** assegni bancari contestati, contratti, testamenti, documenti d'identità.\n\n"
+        "*Tecnologia: rete neurale specializzata nel confronto di firme (SigNet, addestrata su migliaia di campioni)*"
+    ),
+    article=(
+        "### Come leggere il risultato\n"
+        "- **AUTENTICA ✓** — le caratteristiche visive della firma esaminata corrispondono ai riferimenti. "
+        "La barra nel grafico è corta (le firme sono simili).\n"
+        "- **FALSA ✗** — le caratteristiche visive differiscono in modo significativo. "
+        "La barra è lunga (le firme sono diverse).\n"
+        "- La **linea tratteggiata** nel grafico indica la soglia di decisione: "
+        "a sinistra = autentica, a destra = falsa.\n\n"
+        "### Cosa questo strumento non fa\n"
+        "Non emette un verdetto legale definitivo: fornisce un'indicazione quantitativa "
+        "che il perito valuta insieme ad altri elementi. "
+        "Una firma autentica di uno scrittore anziano o in condizioni di salute diverse "
+        "può risultare 'diversa' da quella giovanile. "
+        "Il giudizio finale spetta sempre al perito calligrafo qualificato."
     ),
     examples=_sig_examples if _sig_examples else None,
     flagging_mode="never",
@@ -478,17 +509,34 @@ sig_detect_tab = gr.Interface(
     inputs=[
         gr.Image(label="Documento scansionato", type="numpy"),
         gr.Slider(minimum=0.1, maximum=0.9, value=0.3, step=0.05,
-                  label="Soglia di confidenza"),
+                  label="Soglia di confidenza (valori bassi = più sensibile, valori alti = più selettivo)"),
     ],
     outputs=[
-        gr.Image(label="Documento annotato", type="numpy"),
+        gr.Image(label="Documento annotato con le firme rilevate", type="numpy"),
         gr.Markdown(label="Riepilogo rilevamento"),
     ],
-    title="Rilevamento Firme nei Documenti (YOLOv8)",
+    title="Rilevamento Firme nei Documenti",
     description=(
-        "Carica un'immagine di un documento scansionato. Il modello individuerà ed evidenzierà tutte le firme presenti.\n\n"
-        "**Modello:** YOLOv8 ottimizzato per il rilevamento di firme\n"
-        "**Uso forense:** Primo passo nella pipeline rileva → estrai → verifica."
+        "Carica l'immagine di un documento scansionato: il sistema individuerà automaticamente "
+        "tutte le firme presenti e le evidenzierà con un riquadro colorato.\n\n"
+        "La **soglia di confidenza** regola la sensibilità del rilevamento: "
+        "valori bassi trovano più firme (ma con qualche falso positivo); "
+        "valori alti trovano solo le firme più chiare e definite.\n\n"
+        "**Quando usarlo:** contratti multipagina, atti notarili, moduli bancari, assegni, "
+        "qualsiasi documento in cui occorra localizzare rapidamente le firme.\n\n"
+        "*Tecnologia: rete di rilevamento oggetti addestrata specificamente su firme manoscritte*"
+    ),
+    article=(
+        "### Come leggere il risultato\n"
+        "Ogni riquadro blu sull'immagine indica una firma rilevata, con accanto la percentuale "
+        "di fiducia del sistema (es. 'Sig #1  87%'). "
+        "Le firme rilevate possono essere estratte e passate al tab **Verifica Firma** "
+        "per un'analisi di autenticità.\n\n"
+        "### Cosa questo strumento non fa\n"
+        "Individua la *posizione* delle firme nel documento, ma non ne valuta l'autenticità. "
+        "Elementi grafici simili a una firma — timbri, decorazioni, iniziali — possono "
+        "occasionalmente essere segnalati erroneamente. "
+        "Questo tab è il primo passo di una pipeline: rileva → estrai → verifica."
     ),
     flagging_mode="never",
 )
@@ -537,11 +585,11 @@ ner_tab = gr.Interface(
     inputs=gr.Textbox(
         label="Testo da analizzare",
         lines=6,
-        placeholder="Incolla o digita il testo qui (es. trascrizione dal tab OCR Manoscritto)…",
+        placeholder="Incolla o digita il testo qui (es. trascrizione prodotta dal tab OCR Manoscritto)…",
     ),
     outputs=[
         gr.HighlightedText(
-            label="Entità Nominate",
+            label="Testo con entità evidenziate",
             combine_adjacent=False,
             color_map={
                 "PER": "red",
@@ -550,15 +598,32 @@ ner_tab = gr.Interface(
                 "MISC": "orange",
             },
         ),
-        gr.Markdown(label="Riepilogo entità"),
+        gr.Markdown(label="Elenco entità trovate"),
     ],
-    title="Riconoscimento Entità Nominate (BERT-NER)",
+    title="Riconoscimento di Persone, Luoghi e Organizzazioni",
     description=(
-        "Estrae entità nominate da qualsiasi testo — ideale come secondo passo dopo la trascrizione OCR.\n\n"
-        "**Modello:** `Babelscape/wikineural-multilingual-ner` (multilingue, supporta l'italiano)\n"
-        "**Entità rilevate:** PER (persona), ORG (organizzazione), LOC (luogo), MISC (varie)\n"
-        "**Uso forense:** Identificare persone, luoghi e organizzazioni citati in documenti manoscritti, "
-        "lettere anonime, contratti e atti processuali."
+        "Incolla un testo — ad esempio la trascrizione prodotta dal tab **OCR Manoscritto** — "
+        "e il sistema identificherà automaticamente tutte le persone, i luoghi e le "
+        "organizzazioni menzionati, evidenziandoli con colori diversi.\n\n"
+        "**Quando usarlo:** lettere anonime trascritte, dichiarazioni giurate, atti processuali — "
+        "ovunque occorra estrarre rapidamente i soggetti coinvolti senza leggere l'intero documento.\n\n"
+        "*Tecnologia: modello linguistico multilingue addestrato su testi in italiano, inglese, "
+        "tedesco, spagnolo e altre lingue*"
+    ),
+    article=(
+        "### Come leggere il risultato\n"
+        "Il testo viene evidenziato con colori diversi in base al tipo di entità trovata:\n\n"
+        "🔴 **Rosso = Persona** &nbsp;|&nbsp; "
+        "🔵 **Blu = Organizzazione** &nbsp;|&nbsp; "
+        "🟢 **Verde = Luogo** &nbsp;|&nbsp; "
+        "🟠 **Arancione = Altra entità rilevante**\n\n"
+        "La tabella sotto il testo riporta ogni entità trovata con la percentuale di fiducia "
+        "del sistema. Valori superiori all'80% indicano un riconoscimento affidabile.\n\n"
+        "### Cosa questo strumento non fa\n"
+        "Identifica le entità in base alla loro forma linguistica, non alla loro "
+        "rilevanza giuridica. Nomi comuni che coincidono con nomi propri possono "
+        "essere riconosciuti erroneamente. "
+        "Decidere quali entità siano pertinenti al caso spetta sempre all'investigatore."
     ),
     examples=[
         ["Mario Rossi ha firmato il contratto per conto di Acme S.r.l. a Milano il 12 marzo 2024."],
@@ -816,20 +881,35 @@ def writer_identify(image: np.ndarray) -> tuple[str, np.ndarray]:
 
 writer_tab = gr.Interface(
     fn=writer_identify,
-    inputs=gr.Image(label="Campione di scrittura a mano", type="numpy"),
+    inputs=gr.Image(label="Campione di scrittura a mano da attribuire", type="numpy"),
     outputs=[
-        gr.Markdown(label="Candidati identificati"),
-        gr.Image(label="Grafico probabilità", type="numpy"),
+        gr.Markdown(label="Candidati ordinati per probabilità"),
+        gr.Image(label="Grafico delle probabilità", type="numpy"),
     ],
-    title="Identificazione Scrittore (HOG + LBP + SVM)",
+    title="Identificazione dello Scrittore",
     description=(
-        "Carica un campione di scrittura a mano. Il sistema estrarrà le caratteristiche "
-        "grafologiche (HOG, LBP, statistiche dei tratti) e classificherà lo scrittore "
-        "tra quelli nel database.\n\n"
-        "**Tecnica:** HOG + LBP + statistiche run-length → SVM con kernel RBF\n"
-        "**Uso forense:** Attribuzione di autoria in lettere anonime, documenti contestati.\n\n"
-        "*Popola `data/samples/writer_XX/sample_YY.png` per usare campioni reali. "
-        "In assenza di dati reali, vengono usati campioni sintetici a scopo dimostrativo.*"
+        "Carica un campione di scrittura a mano: il sistema estrarrà automaticamente "
+        "le caratteristiche grafologiche — forma delle lettere, texture del tratto, "
+        "ritmo della spaziatura — e confronterà lo stile con quello degli scrittori "
+        "nel database, producendo una lista di candidati ordinata per probabilità.\n\n"
+        "**Quando usarlo:** attribuzione di autoria in lettere anonime, note manoscritte, "
+        "documenti contestati tra più parti.\n\n"
+        "*Tecnologia: analisi automatica delle caratteristiche grafologiche + classificatore statistico*"
+    ),
+    article=(
+        "### Come leggere il risultato\n"
+        "Il grafico a barre mostra la probabilità che la scrittura appartenga a ciascuno "
+        "scrittore nel database. Il candidato con la barra più lunga è quello il cui stile "
+        "grafico è più simile al campione caricato.\n\n"
+        "⚠️ **Nota sulla demo:** in questa versione dimostrativa il sistema è addestrato "
+        "su campioni sintetici (scritture generate artificialmente con stili diversi). "
+        "Per un uso forense reale occorre addestrare il modello su campioni autentici "
+        "degli scrittori candidati, organizzati nella cartella `data/samples/writer_XX/`.\n\n"
+        "### Cosa questo strumento non fa\n"
+        "Anche una probabilità elevata non costituisce prova dell'autoria: è un'indicazione "
+        "statistica che suggerisce su quali soggetti concentrare l'esame peritale. "
+        "Il risultato va sempre valutato da un perito calligrafo qualificato insieme "
+        "ad altri elementi probatori."
     ),
     examples=[[p] for p in _writer_example_paths],
     flagging_mode="never",
@@ -917,15 +997,34 @@ grapho_tab = gr.Interface(
     fn=grapho_analyse,
     inputs=gr.Image(label="Immagine di testo manoscritto", type="numpy"),
     outputs=[
-        gr.Markdown(label="Rapporto di analisi"),
-        gr.Image(label="Immagine annotata (bounding box lettere)", type="numpy"),
+        gr.Markdown(label="Scheda delle caratteristiche grafologiche"),
+        gr.Image(label="Immagine annotata (ogni lettera evidenziata)", type="numpy"),
     ],
     title="Analisi delle Caratteristiche Grafologiche",
     description=(
-        "Carica un'immagine di testo manoscritto. Lo strumento estrae metriche grafologiche "
-        "tra cui inclinazione delle lettere, pressione del tratto, dimensione e spaziatura.\n\n"
-        "**Tecnica:** OpenCV + elaborazione classica delle immagini\n"
-        "**Uso forense:** Profilazione, analisi comparativa, supporto alla perizia."
+        "Carica un'immagine di testo manoscritto: il sistema misurerà automaticamente "
+        "le principali caratteristiche grafologiche — inclinazione delle lettere, "
+        "pressione del tratto, dimensioni e spaziatura — producendo una scheda metrica oggettiva.\n\n"
+        "**Quando usarlo:** analisi comparativa tra due campioni dello stesso documento, "
+        "verifica della coerenza interna di un testo, supporto alla perizia calligrafica.\n\n"
+        "*Tecnologia: elaborazione digitale dell'immagine con rilevamento automatico delle lettere*"
+    ),
+    article=(
+        "### Come leggere i valori\n\n"
+        "| Caratteristica | Significato forense |\n"
+        "|---|---|\n"
+        "| **Inclinazione** | Tende ad essere costante nei campioni autentici dello stesso scrittore; "
+        "variazioni anomale possono segnalare un tentativo di camuffamento |\n"
+        "| **Pressione del tratto** | Dipende dalla penna e dallo stato emotivo; "
+        "differenze marcate tra sezioni dello stesso documento meritano attenzione |\n"
+        "| **Altezza/Larghezza lettere** | Valori molto diversi tra campioni diversi "
+        "possono suggerire scrittori diversi |\n"
+        "| **Spaziatura parole** | Irregolarità possono indicare incertezza, "
+        "interruzioni o alterazione del testo |\n\n"
+        "### Cosa questo strumento non fa\n"
+        "Produce misurazioni numeriche oggettive, ma non formula giudizi forensi autonomi. "
+        "L'interpretazione dei valori in chiave peritale — e la loro rilevanza nel caso specifico — "
+        "spetta al perito calligrafo qualificato."
     ),
     flagging_mode="never",
 )
