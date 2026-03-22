@@ -32,7 +32,7 @@ import gradio as gr
 from collections import OrderedDict
 from PIL import Image, ImageDraw, ImageOps
 from skimage import filters, transform as sk_transform
-from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+from transformers import TrOCRProcessor, VisionEncoderDecoderModel, pipeline as hf_pipeline
 from ultralytics import YOLO
 from huggingface_hub import hf_hub_download
 
@@ -45,6 +45,7 @@ TROCR_MODEL = "microsoft/trocr-base-handwritten"
 YOLO_REPO = "tech4humans/yolov8s-signature-detector"
 YOLO_FILENAME = "yolov8s.pt"
 SIG_THRESHOLD = 0.35  # cosine distance threshold for signature verification
+NER_MODEL = "Babelscape/wikineural-multilingual-ner"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Lazy model loaders (loaded on first use to avoid memory duplication)
@@ -53,6 +54,7 @@ SIG_THRESHOLD = 0.35  # cosine distance threshold for signature verification
 _trocr_processor = None
 _trocr_model = None
 _yolo_model = None
+_ner_pipeline = None
 
 
 def get_trocr():
@@ -63,6 +65,19 @@ def get_trocr():
         _trocr_model = VisionEncoderDecoderModel.from_pretrained(TROCR_MODEL).to(DEVICE)
         _trocr_model.eval()
     return _trocr_processor, _trocr_model
+
+
+def get_ner():
+    global _ner_pipeline
+    if _ner_pipeline is None:
+        print("Loading NER model...")
+        _ner_pipeline = hf_pipeline(
+            "ner",
+            model=NER_MODEL,
+            aggregation_strategy="simple",
+            device=0 if DEVICE == "cuda" else -1,
+        )
+    return _ner_pipeline
 
 
 def get_yolo():
@@ -183,21 +198,53 @@ def preprocess_signature(pil_img: Image.Image) -> torch.Tensor:
 # Tab 1 — Handwritten OCR
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _segment_lines(pil_img: Image.Image, min_gap: int = 5, pad: int = 6) -> list[Image.Image]:
+    """Split a multi-line handwritten image into individual line crops."""
+    gray = np.array(pil_img.convert("L"))
+    _, binary = cv2.threshold(
+        cv2.GaussianBlur(gray, (3, 3), 0), 0, 255,
+        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU,
+    )
+    # Horizontal projection: ink pixels per row
+    proj = binary.sum(axis=1)
+    in_line, start, segments = False, 0, []
+    for r, v in enumerate(proj):
+        if v > 0 and not in_line:
+            in_line, start = True, r
+        elif v == 0 and in_line:
+            if r - start >= min_gap:
+                segments.append((start, r))
+            in_line = False
+    if in_line:
+        segments.append((start, len(proj)))
+    if not segments:
+        return [pil_img]
+    h, w = gray.shape
+    return [
+        pil_img.crop((0, max(0, y0 - pad), w, min(h, y1 + pad)))
+        for y0, y1 in segments
+    ]
+
+
 def htr_transcribe(image: np.ndarray) -> str:
     if image is None:
         return "Please upload a handwritten image."
     processor, model = get_trocr()
     pil_img = Image.fromarray(image).convert("RGB")
-    pixel_values = processor(images=pil_img, return_tensors="pt").pixel_values.to(DEVICE)
-    with torch.no_grad():
-        generated_ids = model.generate(pixel_values)
-    return processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+    lines = _segment_lines(pil_img)
+    texts = []
+    for line_img in lines:
+        pixel_values = processor(images=line_img, return_tensors="pt").pixel_values.to(DEVICE)
+        with torch.no_grad():
+            generated_ids = model.generate(pixel_values)
+        texts.append(processor.batch_decode(generated_ids, skip_special_tokens=True)[0])
+    return "\n".join(texts)
 
 
 htr_tab = gr.Interface(
     fn=htr_transcribe,
     inputs=gr.Image(label="Handwritten text image", type="numpy"),
-    outputs=gr.Textbox(label="Transcription", lines=4),
+    outputs=gr.Textbox(label="Transcription", lines=8),
     title="Handwritten Text Recognition (TrOCR)",
     description=(
         "Upload an image of handwritten text. The model will transcribe it automatically.\n\n"
@@ -338,7 +385,81 @@ sig_detect_tab = gr.Interface(
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Tab 4 — Graphological Feature Analysis
+# Tab 4 — Named Entity Recognition
+# ──────────────────────────────────────────────────────────────────────────────
+
+_NER_LABELS = {"PER": "Person", "ORG": "Organization", "LOC": "Location", "MISC": "Miscellaneous"}
+
+
+def ner_extract(text: str):
+    if not text or not text.strip():
+        return [], "Please enter some text to analyse."
+    nlp = get_ner()
+    entities = nlp(text)
+
+    # Build HighlightedText format: list of (span, label|None)
+    result = []
+    prev_end = 0
+    for ent in entities:
+        start, end = ent["start"], ent["end"]
+        if start > prev_end:
+            result.append((text[prev_end:start], None))
+        result.append((text[start:end], ent["entity_group"]))
+        prev_end = end
+    if prev_end < len(text):
+        result.append((text[prev_end:], None))
+
+    # Summary table
+    if entities:
+        rows = "\n".join(
+            f"| **{_NER_LABELS.get(e['entity_group'], e['entity_group'])}** "
+            f"(`{e['entity_group']}`) | {e['word']} | {e['score']:.0%} |"
+            for e in entities
+        )
+        summary = f"| Type | Entity | Confidence |\n|------|--------|------------|\n{rows}"
+    else:
+        summary = "No named entities found."
+
+    return result, summary
+
+
+ner_tab = gr.Interface(
+    fn=ner_extract,
+    inputs=gr.Textbox(
+        label="Text to analyse",
+        lines=6,
+        placeholder="Paste or type text here (e.g. transcription from the HTR tab)…",
+    ),
+    outputs=[
+        gr.HighlightedText(
+            label="Named Entities",
+            combine_adjacent=False,
+            color_map={
+                "PER": "red",
+                "ORG": "blue",
+                "LOC": "green",
+                "MISC": "orange",
+            },
+        ),
+        gr.Markdown(label="Entity summary"),
+    ],
+    title="Named Entity Recognition (BERT-NER)",
+    description=(
+        "Extract named entities from any text — ideal as a second step after HTR transcription.\n\n"
+        "**Model:** `Babelscape/wikineural-multilingual-ner` (multilingual, supports Italian)\n"
+        "**Entities detected:** PER (person), ORG (organization), LOC (location), MISC\n"
+        "**Forensic use:** Identify people, places and organisations mentioned in handwritten documents, "
+        "anonymous letters, contracts, and court exhibits."
+    ),
+    examples=[
+        ["John Smith signed the contract on behalf of Acme Corp in New York on 12 March 2024."],
+        ["The suspect, Maria Rossi, was last seen near the Colosseum in Rome by officers from Interpol."],
+    ],
+    flagging_mode="never",
+)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Tab 5 — Graphological Feature Analysis
 # ──────────────────────────────────────────────────────────────────────────────
 
 def grapho_analyse(image: np.ndarray) -> tuple[str, np.ndarray]:
@@ -437,11 +558,12 @@ grapho_tab = gr.Interface(
 # ──────────────────────────────────────────────────────────────────────────────
 
 demo = gr.TabbedInterface(
-    interface_list=[htr_tab, sig_verify_tab, sig_detect_tab, grapho_tab],
+    interface_list=[htr_tab, sig_verify_tab, sig_detect_tab, ner_tab, grapho_tab],
     tab_names=[
         "Handwritten OCR",
         "Signature Verification",
         "Signature Detection",
+        "Named Entity Recognition",
         "Graphological Analysis",
     ],
     title="GraphoLab — AI in Forensic Graphology",
