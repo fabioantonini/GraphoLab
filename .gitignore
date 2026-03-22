@@ -212,3 +212,6 @@ __marimo__/
 
 # CEDAR dataset — troppo grande per il repo (2640 immagini, 242 MB .rar)
 data/cedar/
+
+# Claude Code local settings (contengono percorsi e preferenze locali)
+.claude/settings.json

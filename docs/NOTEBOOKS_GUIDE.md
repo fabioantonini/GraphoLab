@@ -209,7 +209,7 @@ Uses a multilingual **BERT-NER** model (`Babelscape/wikineural-multilingual-ner`
 
 **File:** `app/grapholab_demo.py`
 
-A browser-based multi-tab Gradio application (fully in Italian) aggregating the five main AI capabilities:
+A browser-based multi-tab Gradio application (fully in Italian) aggregating the six main AI capabilities:
 
 | Tab | Functionality |
 |-----|--------------|
@@ -217,6 +217,7 @@ A browser-based multi-tab Gradio application (fully in Italian) aggregating the 
 | Verifica Firma | Upload two signatures → genuine / forged verdict |
 | Rilevamento Firma | Upload a document → annotated image with detected signatures |
 | Riconoscimento Entità | Enter text → colour-coded named entities + summary table |
+| Identificazione Scrittore | Upload a handwriting sample → ranked candidate authors with probability scores |
 | Analisi Grafologica | Upload handwritten text → visual metrics dashboard |
 
 **Running locally:**

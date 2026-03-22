@@ -22,6 +22,10 @@ warnings.filterwarnings("ignore")
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
+import io
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import cv2
 import numpy as np
 import torch
@@ -30,8 +34,12 @@ import torch.nn.functional as F
 import torchvision.transforms as T
 import gradio as gr
 from collections import OrderedDict
-from PIL import Image, ImageDraw, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 from skimage import filters, transform as sk_transform
+from skimage.feature import hog, local_binary_pattern
+from sklearn.svm import SVC
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.pipeline import Pipeline
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel, pipeline as hf_pipeline
 from ultralytics import YOLO
 from huggingface_hub import hf_hub_download
@@ -55,6 +63,8 @@ _trocr_processor = None
 _trocr_model = None
 _yolo_model = None
 _ner_pipeline = None
+_writer_clf = None
+_writer_le = None
 
 
 def get_trocr():
@@ -461,7 +471,275 @@ ner_tab = gr.Interface(
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Tab 5 — Graphological Feature Analysis
+# Tab 5 — Writer Identification
+# ──────────────────────────────────────────────────────────────────────────────
+
+WRITER_IMG_SIZE = (128, 256)   # (H, W) for feature extraction
+_WRITER_SAMPLES_DIR = ROOT / "data" / "samples"
+_WRITER_EXAMPLES_DIR = ROOT / "data" / "samples" / "writer_examples"
+
+_WRITER_NAMES = {
+    0: "Scrittore A",
+    1: "Scrittore B",
+    2: "Scrittore C",
+    3: "Scrittore D",
+    4: "Scrittore E",
+}
+
+
+def _make_synthetic_writer(writer_id: int, sample_id: int) -> Image.Image:
+    """Generate a synthetic handwriting sample with style determined by writer_id."""
+    rng = np.random.default_rng(writer_id * 1000 + sample_id)
+    w, h = 256, 128
+    img = Image.new("L", (w, h), 255)
+    draw = ImageDraw.Draw(img)
+
+    # Per-writer style parameters
+    slant = [-20, -8, 0, 12, 25][writer_id % 5]          # degrees
+    spacing = [14, 18, 22, 16, 20][writer_id % 5]        # px between chars
+    stroke_w = [1, 2, 1, 3, 2][writer_id % 5]
+    size = [18, 22, 16, 24, 20][writer_id % 5]
+
+    chars = "abcdefghijklmnopqrstuvwxyz"
+    x, y = 10, 20
+    for row in range(3):
+        xc = 10 + rng.integers(-2, 3)
+        for _ in range(12):
+            c = chars[rng.integers(len(chars))]
+            sx = int(slant * size / 100)
+            pts = [
+                (xc + sx, y),
+                (xc, y + size),
+                (xc + spacing // 2 + sx, y + size // 2),
+            ]
+            draw.line(pts[:2], fill=0, width=stroke_w)
+            draw.line(pts[1:], fill=0, width=stroke_w)
+            xc += spacing + rng.integers(-2, 3)
+            if xc > w - 20:
+                break
+        y += size + 8 + rng.integers(-2, 3)
+
+    return img
+
+
+def _preprocess_writer_img(pil_img: Image.Image) -> np.ndarray:
+    """Convert PIL image to normalised grayscale array of WRITER_IMG_SIZE."""
+    gray = pil_img.convert("L")
+    arr = np.array(gray, dtype=np.float32)
+    # OTSU threshold → invert so ink=1, bg=0
+    thresh = filters.threshold_otsu(arr) if arr.std() > 1 else 128.0
+    binary = (arr < thresh).astype(np.float32)
+    # Resize
+    resized = sk_transform.resize(binary, WRITER_IMG_SIZE, anti_aliasing=True)
+    return resized.astype(np.float32)
+
+
+def _extract_writer_features(pil_img: Image.Image) -> np.ndarray:
+    """Extract HOG + LBP + run-length features for writer identification."""
+    arr = _preprocess_writer_img(pil_img)
+    arr8 = (arr * 255).astype(np.uint8)
+
+    # HOG features
+    hog_feats = hog(
+        arr,
+        orientations=9,
+        pixels_per_cell=(16, 16),
+        cells_per_block=(2, 2),
+        feature_vector=True,
+    )
+
+    # LBP histogram (26 uniform bins)
+    lbp = local_binary_pattern(arr8, P=24, R=3, method="uniform")
+    lbp_hist, _ = np.histogram(lbp, bins=26, range=(0, 26), density=True)
+
+    # Run-length statistics (horizontal & vertical)
+    def _run_stats(binary_row):
+        runs = []
+        cnt = 0
+        for v in binary_row:
+            if v > 0.5:
+                cnt += 1
+            elif cnt > 0:
+                runs.append(cnt)
+                cnt = 0
+        if cnt > 0:
+            runs.append(cnt)
+        return runs
+
+    h_runs = []
+    for row in arr:
+        h_runs.extend(_run_stats(row))
+    v_runs = []
+    for col in arr.T:
+        v_runs.extend(_run_stats(col))
+
+    h_arr = np.array(h_runs, dtype=np.float32) if h_runs else np.array([0.0])
+    v_arr = np.array(v_runs, dtype=np.float32) if v_runs else np.array([0.0])
+    run_feats = np.array([
+        h_arr.mean(), h_arr.std(), h_arr.max(),
+        v_arr.mean(), v_arr.std(), v_arr.max(),
+    ], dtype=np.float32)
+
+    return np.concatenate([hog_feats, lbp_hist, run_feats])
+
+
+def _load_real_writer_samples() -> tuple[list[np.ndarray], list[str]] | None:
+    """Load samples from data/samples/writer_XX/sample_YY.png directories."""
+    writer_dirs = sorted(_WRITER_SAMPLES_DIR.glob("writer_??"))
+    if len(writer_dirs) < 2:
+        return None
+    X, y = [], []
+    for wd in writer_dirs:
+        samples = sorted(wd.glob("sample_*.png"))
+        if len(samples) < 3:
+            continue
+        for sp in samples:
+            try:
+                img = Image.open(sp)
+                X.append(_extract_writer_features(img))
+                y.append(wd.name)
+            except Exception:
+                pass
+    if len(set(y)) < 2:
+        return None
+    return X, y
+
+
+def _get_writer_model():
+    """Return (Pipeline, LabelEncoder), training lazily on first call."""
+    global _writer_clf, _writer_le
+    if _writer_clf is not None:
+        return _writer_clf, _writer_le
+
+    print("Training writer identification model...")
+
+    real = _load_real_writer_samples()
+    if real is not None:
+        X_raw, y_raw = real
+        labels = y_raw
+    else:
+        # Synthetic fallback: 5 writers × 10 samples
+        X_raw, labels = [], []
+        for wid in range(5):
+            for sid in range(10):
+                img = _make_synthetic_writer(wid, sid)
+                X_raw.append(_extract_writer_features(img))
+                labels.append(_WRITER_NAMES[wid])
+
+    le = LabelEncoder()
+    y_enc = le.fit_transform(labels)
+    X = np.array(X_raw)
+
+    clf = Pipeline([
+        ("scaler", StandardScaler()),
+        ("svc", SVC(kernel="rbf", C=10, gamma="scale", probability=True)),
+    ])
+    clf.fit(X, y_enc)
+
+    _writer_clf = clf
+    _writer_le = le
+    print(f"Writer model ready — {len(le.classes_)} writers, {len(X)} samples.")
+    return _writer_clf, _writer_le
+
+
+def _ensure_writer_examples() -> list[str]:
+    """Pre-generate example images for the Gradio examples list."""
+    _WRITER_EXAMPLES_DIR.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for wid in range(5):
+        p = _WRITER_EXAMPLES_DIR / f"writer_{wid}_example.png"
+        if not p.exists():
+            img = _make_synthetic_writer(wid, sample_id=99)
+            img.save(str(p))
+        paths.append(str(p))
+    return paths
+
+
+_writer_example_paths = _ensure_writer_examples()
+
+
+def writer_identify(image: np.ndarray) -> tuple[str, np.ndarray]:
+    if image is None:
+        return "Carica un'immagine di testo manoscritto.", None
+    try:
+        clf, le = _get_writer_model()
+    except Exception as e:
+        return f"Errore nel caricamento del modello: {e}", None
+
+    pil_img = Image.fromarray(image)
+    try:
+        feat = _extract_writer_features(pil_img)
+    except Exception as e:
+        return f"Errore nell'estrazione delle caratteristiche: {e}", None
+
+    proba = clf.predict_proba([feat])[0]
+    order = np.argsort(proba)[::-1]
+    names = le.inverse_transform(order)
+    scores = proba[order]
+
+    # Markdown report
+    rows = "\n".join(
+        f"| {'🥇' if i == 0 else '🥈' if i == 1 else '🥉' if i == 2 else '  '} "
+        f"**{name}** | {score:.1%} |"
+        for i, (name, score) in enumerate(zip(names, scores))
+    )
+    report = (
+        "**Identificazione Scrittore — Risultati**\n\n"
+        "| Candidato | Probabilità |\n"
+        "|-----------|-------------|\n"
+        + rows
+        + "\n\n*I risultati si basano su caratteristiche HOG + LBP + statistiche dei tratti.*"
+    )
+    if _load_real_writer_samples() is None:
+        report += (
+            "\n\n⚠️ *Dati sintetici: il modello è addestrato su scritture generate "
+            "artificialmente. Per risultati forensi reali, popola `data/samples/writer_XX/`.*"
+        )
+
+    # Bar chart
+    fig, ax = plt.subplots(figsize=(5, max(2.5, len(names) * 0.55)))
+    colors = ["#1B3A6B" if i == 0 else "#C8973A" if i == 1 else "#9eb8e0"
+              for i in range(len(names))]
+    ax.barh(names[::-1], scores[::-1] * 100, color=colors[::-1])
+    ax.set_xlabel("Probabilità (%)")
+    ax.set_xlim(0, 105)
+    ax.set_title("Probabilità per scrittore")
+    for i, (name, score) in enumerate(zip(names[::-1], scores[::-1])):
+        ax.text(score * 100 + 1, i, f"{score:.1%}", va="center", fontsize=9)
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=120)
+    plt.close(fig)
+    buf.seek(0)
+    chart_arr = np.array(Image.open(buf))
+
+    return report, chart_arr
+
+
+writer_tab = gr.Interface(
+    fn=writer_identify,
+    inputs=gr.Image(label="Campione di scrittura a mano", type="numpy"),
+    outputs=[
+        gr.Markdown(label="Candidati identificati"),
+        gr.Image(label="Grafico probabilità", type="numpy"),
+    ],
+    title="Identificazione Scrittore (HOG + LBP + SVM)",
+    description=(
+        "Carica un campione di scrittura a mano. Il sistema estrarrà le caratteristiche "
+        "grafologiche (HOG, LBP, statistiche dei tratti) e classificherà lo scrittore "
+        "tra quelli nel database.\n\n"
+        "**Tecnica:** HOG + LBP + statistiche run-length → SVM con kernel RBF\n"
+        "**Uso forense:** Attribuzione di autoria in lettere anonime, documenti contestati.\n\n"
+        "*Popola `data/samples/writer_XX/sample_YY.png` per usare campioni reali. "
+        "In assenza di dati reali, vengono usati campioni sintetici a scopo dimostrativo.*"
+    ),
+    examples=[[p] for p in _writer_example_paths],
+    flagging_mode="never",
+)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Tab 6 — Graphological Feature Analysis
 # ──────────────────────────────────────────────────────────────────────────────
 
 def grapho_analyse(image: np.ndarray) -> tuple[str, np.ndarray]:
@@ -560,12 +838,13 @@ grapho_tab = gr.Interface(
 # ──────────────────────────────────────────────────────────────────────────────
 
 demo = gr.TabbedInterface(
-    interface_list=[htr_tab, sig_verify_tab, sig_detect_tab, ner_tab, grapho_tab],
+    interface_list=[htr_tab, sig_verify_tab, sig_detect_tab, ner_tab, writer_tab, grapho_tab],
     tab_names=[
         "OCR Manoscritto",
         "Verifica Firma",
         "Rilevamento Firma",
         "Riconoscimento Entità",
+        "Identificazione Scrittore",
         "Analisi Grafologica",
     ],
     title="GraphoLab — Intelligenza Artificiale in Grafologia Forense",

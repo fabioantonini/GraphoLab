@@ -209,7 +209,7 @@ Utilizza un modello **BERT-NER** multilingue (`Babelscape/wikineural-multilingua
 
 **File:** `app/grapholab_demo.py`
 
-Un'applicazione Gradio multi-tab accessibile da browser (completamente in italiano) che aggrega le cinque principali funzionalità AI:
+Un'applicazione Gradio multi-tab accessibile da browser (completamente in italiano) che aggrega le sei principali funzionalità AI:
 
 | Tab | Funzionalità |
 |-----|-------------|
@@ -217,6 +217,7 @@ Un'applicazione Gradio multi-tab accessibile da browser (completamente in italia
 | Verifica Firma | Carica due firme → verdetto autentica / falsa |
 | Rilevamento Firma | Carica un documento → immagine annotata con firme rilevate |
 | Riconoscimento Entità | Inserisci testo → entità evidenziate + tabella riepilogativa |
+| Identificazione Scrittore | Carica un campione di scrittura → lista di autori candidati con punteggi di probabilità |
 | Analisi Grafologica | Carica testo manoscritto → dashboard di metriche visive |
 
 **Avvio in locale:**
