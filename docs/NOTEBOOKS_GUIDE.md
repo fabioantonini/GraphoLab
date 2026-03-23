@@ -128,25 +128,25 @@ Uses a **YOLOv8** model fine-tuned for signature detection (`tech4humans/yolov8s
 Compares the stylistic characteristics of an anonymous handwritten sample against a set of known reference samples to attribute authorship.
 
 **What you will learn:**
-- How to extract handwriting style features (texture descriptors, stroke statistics)
-- How to build a simple writer identification classifier with scikit-learn
+- How to extract handwriting style features: HOG (Histogram of Oriented Gradients), LBP (Local Binary Patterns), and horizontal/vertical run-length statistics
+- How to build an SVM-based writer identification pipeline with scikit-learn (`StandardScaler` + `SVC` with RBF kernel)
 - How to evaluate identification accuracy using cross-validation
-- How to present results as a ranked list of candidate authors with confidence scores
+- How to present results as a ranked list of candidate authors with probability scores
 
 **Demo flow:**
-1. Load a small set of reference samples (known authors) from `data/samples/`
-2. Extract features from each sample
-3. Train or load a pre-trained classifier
-4. Upload an anonymous sample → ranked candidate list with similarity scores
+1. Load the reference sample database from `data/samples/writer_XX/` (five writers, 41 samples each)
+2. Extract HOG + LBP + run-length features from each sample
+3. Train an SVM classifier (`C=10`, `gamma="scale"`, `probability=True`)
+4. Upload an anonymous sample → ranked candidate list with probability scores
 
 **Forensic use cases:**
 - Attribution of anonymous threatening letters
 - Verification of disputed document authorship
 - Historical document provenance research
 
-**Prerequisites:** `torch`, `torchvision`, `scikit-learn`, `Pillow`, `numpy`
+**Prerequisites:** `scikit-learn`, `scikit-image`, `Pillow`, `numpy`
 
-**Dataset note:** The [IAM Handwriting Database](https://fki.tic.heia-fr.ch/databases/iam-handwriting-database) is the standard benchmark. A small public subset is included in `data/samples/` for demo purposes.
+**Dataset note:** The demo uses a synthetic handwriting database in `data/samples/writer_XX/` (five writers, 41 samples each) generated with system TTF fonts (Ink Free, Lucida Handwriting, Segoe Print, Segoe Script, Comic Sans) to ensure distinct, reproducible styles. For production use, replace these with real handwriting scans. The [IAM Handwriting Database](https://fki.tic.heia-fr.ch/databases/iam-handwriting-database) is the standard forensic benchmark.
 
 ---
 

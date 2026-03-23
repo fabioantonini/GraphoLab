@@ -128,25 +128,25 @@ Utilizza un modello **YOLOv8** fine-tuned per il rilevamento di firme (`tech4hum
 Confronta le caratteristiche stilistiche di un campione manoscritto anonimo con un insieme di campioni di riferimento noti per attribuire la paternità del documento.
 
 **Cosa imparerai:**
-- Come estrarre feature stilistiche della scrittura (descrittori di texture, statistiche dei tratti)
-- Come costruire un semplice classificatore per l'identificazione dello scrittore con scikit-learn
+- Come estrarre feature stilistiche della scrittura: HOG (Histogram of Oriented Gradients), LBP (Local Binary Patterns) e statistiche di run-length orizzontali/verticali
+- Come costruire una pipeline di identificazione basata su SVM con scikit-learn (`StandardScaler` + `SVC` con kernel RBF)
 - Come valutare l'accuratezza dell'identificazione tramite cross-validation
-- Come presentare i risultati come lista ordinata di autori candidati con score di confidenza
+- Come presentare i risultati come lista ordinata di autori candidati con punteggi di probabilità
 
 **Flusso della demo:**
-1. Caricare un piccolo set di campioni di riferimento (autori noti) da `data/samples/`
-2. Estrarre le feature da ciascun campione
-3. Addestrare o caricare un classificatore pre-addestrato
-4. Caricare un campione anonimo → lista ordinata di candidati con score di similarità
+1. Caricare il database di campioni di riferimento da `data/samples/writer_XX/` (cinque scrittori, 41 campioni ciascuno)
+2. Estrarre le feature HOG + LBP + run-length da ciascun campione
+3. Addestrare un classificatore SVM (`C=10`, `gamma="scale"`, `probability=True`)
+4. Caricare un campione anonimo → lista ordinata di candidati con punteggi di probabilità
 
 **Casi d'uso forensi:**
 - Attribuzione di lettere minatorie anonime
 - Verifica della paternità di documenti contestati
 - Ricerca sulla provenienza di documenti storici
 
-**Prerequisiti:** `torch`, `torchvision`, `scikit-learn`, `Pillow`, `numpy`
+**Prerequisiti:** `scikit-learn`, `scikit-image`, `Pillow`, `numpy`
 
-**Nota sul dataset:** Il [IAM Handwriting Database](https://fki.tic.heia-fr.ch/databases/iam-handwriting-database) è il benchmark standard. Un piccolo sottoinsieme pubblico è incluso in `data/samples/` a scopo dimostrativo.
+**Nota sul dataset:** La demo utilizza un database di scrittura sintetica in `data/samples/writer_XX/` (cinque scrittori, 41 campioni ciascuno) generato con font TTF di sistema (Ink Free, Lucida Handwriting, Segoe Print, Segoe Script, Comic Sans) per garantire stili distinti e riproducibili. Per uso in produzione, sostituire con scansioni reali di scrittura a mano. Il [IAM Handwriting Database](https://fki.tic.heia-fr.ch/databases/iam-handwriting-database) è il benchmark forense standard.
 
 ---
 
