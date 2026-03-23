@@ -538,7 +538,15 @@ def _add_picture_fill(slide, img_path, left, top, max_w, max_h):
 # Slide layout builders
 # ---------------------------------------------------------------------------
 
-def add_cover(prs: Presentation):
+def _set_speaker_note(slide, text: str):
+    """Write text to the PowerPoint notes pane (visible in presenter view)."""
+    if not text:
+        return
+    tf = slide.notes_slide.notes_text_frame
+    tf.text = text.strip()
+
+
+def add_cover(prs: Presentation, speaker_note: str = ""):
     slide = _blank_slide(prs)
     _fill_bg(slide, NAVY)
     _add_rect(slide, 0, SLIDE_H - Inches(0.55), SLIDE_W, Inches(0.55), GOLD)
@@ -564,9 +572,10 @@ def add_cover(prs: Presentation):
         font_size=13, color=RGBColor(0xAA, 0xBB, 0xCC),
         align=PP_ALIGN.CENTER,
     )
+    _set_speaker_note(slide, speaker_note)
 
 
-def add_agenda(prs: Presentation):
+def add_agenda(prs: Presentation, speaker_note: str = ""):
     slide = _blank_slide(prs)
     _fill_bg(slide, LIGHT)
     _add_rect(slide, 0, 0, Inches(0.18), SLIDE_H, GOLD)
@@ -581,9 +590,11 @@ def add_agenda(prs: Presentation):
     ]
     _add_bullet_textbox(slide, items, Inches(0.9), Inches(1.4), Inches(11.5),
                         Inches(5), font_size=22, color=DARK)
+    _set_speaker_note(slide, speaker_note)
 
 
-def add_section(prs: Presentation, number: str, title: str, subtitle: str = ""):
+def add_section(prs: Presentation, number: str, title: str, subtitle: str = "",
+                speaker_note: str = ""):
     slide = _blank_slide(prs)
     _fill_bg(slide, NAVY)
     _add_textbox(slide, number, Inches(0.6), Inches(0.5), Inches(2), Inches(1),
@@ -594,10 +605,11 @@ def add_section(prs: Presentation, number: str, title: str, subtitle: str = ""):
         _add_textbox(slide, subtitle, Inches(0.6), Inches(4.2), Inches(11.5),
                      Inches(1), font_size=20, color=GOLD, italic=True)
     _add_rect(slide, Inches(0.6), Inches(4.0), Inches(11), Inches(0.06), GOLD)
+    _set_speaker_note(slide, speaker_note)
 
 
 def add_bullet(prs: Presentation, title: str, bullets, note: str = "",
-               font_size: int = 19):
+               font_size: int = 19, speaker_note: str = ""):
     slide = _blank_slide(prs)
     _fill_bg(slide, WHITE)
     _add_rect(slide, 0, 0, SLIDE_W, Inches(1.1), NAVY)
@@ -611,10 +623,11 @@ def add_bullet(prs: Presentation, title: str, bullets, note: str = "",
                   RGBColor(0xF0, 0xF2, 0xF7))
         _add_textbox(slide, note, Inches(0.4), SLIDE_H - Inches(0.48),
                      Inches(12.5), Inches(0.42), font_size=12, color=GREY, italic=True)
+    _set_speaker_note(slide, speaker_note)
 
 
 def add_bullet_with_image(prs: Presentation, title: str, bullets, img_path,
-                          font_size: int = 17, note: str = ""):
+                          font_size: int = 17, note: str = "", speaker_note: str = ""):
     """Bullet slide with image panel on the right (58% text / 40% image)."""
     slide = _blank_slide(prs)
     _fill_bg(slide, WHITE)
@@ -642,13 +655,14 @@ def add_bullet_with_image(prs: Presentation, title: str, bullets, img_path,
                   RGBColor(0xF0, 0xF2, 0xF7))
         _add_textbox(slide, note, Inches(0.4), SLIDE_H - Inches(0.48),
                      Inches(12.5), Inches(0.42), font_size=12, color=GREY, italic=True)
+    _set_speaker_note(slide, speaker_note)
 
 
 def add_two_col(prs: Presentation, title: str,
                 left_title: str, left_bullets,
                 right_title: str, right_bullets,
                 left_color=NAVY, right_color=RGBColor(0x1A, 0x5C, 0x38),
-                left_image=None):
+                left_image=None, speaker_note: str = ""):
     slide = _blank_slide(prs)
     _fill_bg(slide, WHITE)
     _add_rect(slide, 0, 0, SLIDE_W, Inches(1.1), NAVY)
@@ -693,9 +707,11 @@ def add_two_col(prs: Presentation, title: str,
     _add_bullet_textbox(slide, right_bullets,
                         rx + Inches(0.1), top + Inches(0.5), col_w - Inches(0.1),
                         h - Inches(0.5), font_size=17, color=DARK)
+    _set_speaker_note(slide, speaker_note)
 
 
-def add_table_slide(prs: Presentation, title: str, headers: list, rows: list):
+def add_table_slide(prs: Presentation, title: str, headers: list, rows: list,
+                    speaker_note: str = ""):
     slide = _blank_slide(prs)
     _fill_bg(slide, WHITE)
     _add_rect(slide, 0, 0, SLIDE_W, Inches(1.1), NAVY)
@@ -734,6 +750,7 @@ def add_table_slide(prs: Presentation, title: str, headers: list, rows: list):
         bg = LIGHT if i % 2 == 0 else WHITE
         for j, val in enumerate(row):
             _set_cell(table.cell(i + 1, j), val, bg, DARK, size=14)
+    _set_speaker_note(slide, speaker_note)
 
 
 # ---------------------------------------------------------------------------
@@ -743,21 +760,31 @@ def add_table_slide(prs: Presentation, title: str, headers: list, rows: list):
 def build(prs: Presentation, imgs: dict):
 
     # === COVER + AGENDA ===
-    add_cover(prs)
-    add_agenda(prs)
+    add_cover(prs, speaker_note="""
+Buongiorno a tutti e benvenuti. Oggi vedremo come l'intelligenza artificiale può diventare uno strumento potente nelle mani del perito grafologo e dell'investigatore forense. Non si tratta di sostituire la competenza umana, ma di amplificarla con strumenti che lavorano su larga scala e producono misurazioni oggettive. Iniziamo dall'inizio: cos'è davvero l'intelligenza artificiale?
+""")
+    add_agenda(prs, speaker_note="""
+Ecco la struttura della presentazione. Partiamo dalle basi — cos'è l'AI, come funziona — senza dare nulla per scontato. Poi entriamo nel vivo: i limiti dell'analisi manuale, le sei aree di applicazione, i laboratori pratici. Chiudiamo con le considerazioni etiche e la demo interattiva che potete esplorare direttamente.
+""")
 
     # =========================================================
     # SEZIONE 1 — Cos'è l'Intelligenza Artificiale
     # =========================================================
     add_section(prs, "01", "Cos'è l'Intelligenza Artificiale",
-                "Una introduzione accessibile per professionisti non tecnici")
+                "Una introduzione accessibile per professionisti non tecnici",
+                speaker_note="""
+Partiamo dalle fondamenta. Questo capitolo è dedicato a chi non ha background tecnico: spiegheremo l'AI con analogie concrete, senza formule matematiche. L'obiettivo è costruire un vocabolario comune che ci servirà per il resto della presentazione.
+""")
 
     add_bullet(prs, "Cos'è l'Intelligenza Artificiale", [
         "L'intelligenza artificiale (AI) è la capacità di un sistema informatico di svolgere compiti che normalmente richiedono intelligenza umana",
         "Non si tratta di un singolo algoritmo, ma di una famiglia di tecniche: machine learning, reti neurali, computer vision, elaborazione del linguaggio naturale",
         "L'AI non «pensa» come un essere umano — riconosce pattern statistici in grandi quantità di dati",
         "Il risultato è un sistema capace di generalizzare: applicare ciò che ha imparato a casi nuovi, mai visti prima",
-    ], note="AI = riconoscimento di pattern su larga scala, non intelligenza nel senso umano del termine")
+    ], note="AI = riconoscimento di pattern su larga scala, non intelligenza nel senso umano del termine",
+    speaker_note="""
+La prima cosa da chiarire: l'AI non è magia, non è fantascienza e non 'pensa' nel senso umano. È un sistema statistico che ha visto milioni di esempi e ha imparato a riconoscere pattern. Pensate a come un bambino impara a riconoscere un gatto: vede mille gatti diversi finché il suo cervello costruisce un'idea generale di 'gatto'. L'AI fa esattamente questo, ma con dati numerici e su scala enormemente maggiore.
+""")
 
     add_bullet(prs, "AI vs. Regole Manuali: Programmare vs. Imparare", [
         "Approccio tradizionale: un programmatore scrive regole esplicite  →  il computer le esegue",
@@ -765,7 +792,9 @@ def build(prs: Presentation, imgs: dict):
         "Approccio AI (machine learning): il sistema riceve migliaia di esempi etichettati e deduce autonomamente le regole",
         "  Esempio: il modello vede 100.000 lettere «O» scritte a mano e impara da solo come riconoscerle",
         "Vantaggio: i sistemi AI gestiscono variabilità e complessità che sarebbe impossibile codificare manualmente",
-    ])
+    ], speaker_note="""
+L'approccio tradizionale è: un programmatore scrive tutte le regole a mano. Ma la scrittura a mano è infinitamente variabile: impossibile scrivere una regola per ogni stile di ogni persona. Il machine learning capovolge l'approccio: invece di scrivere le regole, diamo al sistema migliaia di esempi etichettati e lui le deduce da solo. Questo è il salto concettuale fondamentale dell'AI moderna.
+""")
 
     add_bullet_with_image(prs, "Come Impara una Macchina: il Training",
         [
@@ -777,14 +806,19 @@ def build(prs: Presentation, imgs: dict):
             "Il ciclo si ripete su milioni di esempi fino a convergenza",
         ],
         imgs.get("training_cycle"),
-        note="Il training avviene una sola volta. L'uso del modello addestrato (inferenza) è istantaneo.")
+        note="Il training avviene una sola volta. L'uso del modello addestrato (inferenza) è istantaneo.",
+        speaker_note="""
+Il diagramma mostra il ciclo di training. È come un bambino che impara con le flash card: vede l'esempio, fa un tentativo, riceve una correzione, aggiusta. Questo ciclo si ripete milioni di volte. La cosa importante da capire: il training avviene una volta sola — può richiedere ore o giorni su hardware specializzato. Dopo, usare il modello addestrato è istantaneo, come caricare un esperto virtuale che ha già studiato tutto.
+""")
 
     add_bullet(prs, "I Dati di Addestramento: il Carburante dell'AI", [
         "Senza dati non c'è apprendimento: la qualità del modello dipende direttamente dalla qualità e quantità dei dati di training",
         "Dataset tipici per grafologia forense: migliaia di firme etichettate, campioni di scrittura da più scrittori, documenti scansionati",
         "Bias nei dati: se il dataset è sbilanciato, il modello potrebbe funzionare peggio su gruppi sotto-rappresentati",
         "I modelli usati in GraphoLab sono addestrati su dataset pubblici di riferimento: GPDS (firme), IAM (scrittura), CEDAR (firme)",
-    ])
+    ], speaker_note="""
+Si dice 'garbage in, garbage out': se il dataset è sbilanciato o di bassa qualità, il modello sarà sbilanciato. Per la grafologia forense questo è critico: un modello addestrato solo su firme di un certo periodo o cultura potrebbe funzionare meno bene su altri. I modelli di GraphoLab usano dataset pubblici di riferimento — GPDS, IAM, CEDAR — che sono gli standard del settore, con migliaia di campioni verificati.
+""")
 
     add_bullet_with_image(prs, "Reti Neurali: Ispirazione Biologica",
         [
@@ -794,7 +828,10 @@ def build(prs: Presentation, imgs: dict):
             "Le reti imparano rappresentazioni gerarchiche: dai tratti alle lettere, alle parole",
             "Esempio: una rete per le firme impara prima a riconoscere bordi e curve, poi pattern stilistici",
         ],
-        imgs.get("neural_network"))
+        imgs.get("neural_network"),
+        speaker_note="""
+Le reti neurali sono ispirate al cervello, ma non antropomorfizzatele troppo. Sono sistemi matematici con milioni di parametri numerici aggiustati durante il training. Il concetto chiave è la gerarchia: i primi strati riconoscono elementi semplici come bordi, i successivi riconoscono forme più complesse, i finali riconoscono strutture ad alto livello. Per le firme: prima bordi e curve, poi loop e tratti caratteristici, poi lo stile complessivo dello scrittore.
+""")
 
     add_bullet_with_image(prs, "Computer Vision: Vedere con le Macchine",
         [
@@ -806,7 +843,10 @@ def build(prs: Presentation, imgs: dict):
             "  Rilevare e verificare firme",
             "  Misurare caratteristiche grafologiche",
         ],
-        imgs.get("computer_vision"))
+        imgs.get("computer_vision"),
+        speaker_note="""
+Per noi un'immagine è qualcosa di visivo e significativo. Per la macchina è una griglia di numeri: valori da 0 a 255 per ogni pixel. I filtri convoluzionali scorrono su questa griglia cercando pattern — bordi, angoli, texture. Questi pattern vengono combinati gerarchicamente fino a produrre una classificazione. In grafologia, questo significa che la macchina può misurare l'angolo di ogni tratto con precisione che nessun occhio umano potrebbe raggiungere in modo consistente.
+""")
 
     add_bullet_with_image(prs, "Output Probabilistici: Score, Non Verdetti",
         [
@@ -817,7 +857,10 @@ def build(prs: Presentation, imgs: dict):
             "Regola fondamentale: lo score AI è un dato quantitativo — l'interpretazione spetta all'esaminatore",
         ],
         imgs.get("confidence_scores"),
-        note="Un sistema AI non 'sa' se una firma è falsa. Sa che la distanza coseno è 0.62, che supera la soglia 0.35.")
+        note="Un sistema AI non 'sa' se una firma è falsa. Sa che la distanza coseno è 0.62, che supera la soglia 0.35.",
+        speaker_note="""
+Questo è un punto cruciale da comunicare bene, soprattutto in sede giudiziaria. L'AI non dice 'questa firma è falsa'. Dice 'la distanza coseno tra questa firma e il riferimento è 0.62, che supera la soglia calibrata di 0.35'. Tutto il resto — interpretare questo numero nel contesto del caso specifico — spetta all'esaminatore. La soglia può essere regolata a seconda del livello di rischio accettabile: una banca e un tribunale penale potrebbero calibrarla diversamente.
+""")
 
     add_bullet(prs, "AI nella Vita Quotidiana: Esempi Familiari", [
         "Traduzione automatica (Google Translate, DeepL) — comprensione del linguaggio naturale",
@@ -826,7 +869,9 @@ def build(prs: Presentation, imgs: dict):
         "Face ID sullo smartphone — riconoscimento facciale",
         "Diagnosi medica da immagini radiologiche — computer vision applicata alla medicina",
         "In tutti questi casi: l'AI non «capisce», ma ha imparato a riconoscere pattern statistici con alta affidabilità",
-    ])
+    ], speaker_note="""
+Per dare concretezza, ricordiamo che tutti usiamo l'AI ogni giorno senza saperlo: il filtro spam della posta, la traduzione automatica, il riconoscimento facciale del telefono. Questi sono tutti esempi dello stesso principio: riconoscimento di pattern su grandi quantità di dati. La differenza rispetto all'uso forense è che in forensics dobbiamo documentare ogni passo e spiegarlo in modo comprensibile a giudici e giurie.
+""")
 
     add_bullet(prs, "Cosa l'AI Non È", [
         "Non è infallibile: i modelli commettono errori, specialmente su casi anomali o dati degradati",
@@ -835,13 +880,19 @@ def build(prs: Presentation, imgs: dict):
         "Non produce certezze legali: uno score al 95% non equivale a prova oltre ogni ragionevole dubbio",
         "Non è neutrale per default: riflette i bias presenti nei dati di addestramento",
         "L'AI è uno strumento potente — come un microscopio: trasforma il lavoro dell'esperto, non lo elimina",
-    ], note="Il valore dell'AI in ambito forense dipende dal modo in cui viene integrata nel processo peritale.")
+    ], note="Il valore dell'AI in ambito forense dipende dal modo in cui viene integrata nel processo peritale.",
+    speaker_note="""
+Questo è forse il punto più importante. L'AI non è infallibile — commette errori, specialmente su casi ai margini della distribuzione su cui è stata addestrata. Non è trasparente: i modelli deep learning sono 'scatole nere' e spiegare le loro decisioni richiede strumenti appositi. Non ha accesso al contesto del caso. Non produce certezze legali: un 95% di confidenza non è 'prova oltre ogni ragionevole dubbio'. È uno strumento — potente come un microscopio, ma il microscopio non emette diagnosi. Questo porta naturalmente alla domanda: dove l'analisi manuale mostra i suoi limiti?
+""")
 
     # =========================================================
     # SEZIONE 2 — Limiti del metodo manuale e ruolo dell'AI
     # =========================================================
     add_section(prs, "02", "Limiti dell'Analisi Manuale\ne Ruolo dell'AI",
-                "Dove l'AI aggiunge valore reale al lavoro dell'esaminatore forense")
+                "Dove l'AI aggiunge valore reale al lavoro dell'esaminatore forense",
+                speaker_note="""
+Passiamo alla domanda pratica: perché un perito esperto dovrebbe voler usare l'AI? Non per moda o innovazione — ma perché esistono limiti strutturali dell'analisi puramente manuale che l'AI può superare. Vediamoli uno per uno.
+""")
 
     add_bullet(prs, "Limiti dell'Analisi Manuale: Tempo e Scalabilità", [
         "Il confronto manuale di firme o campioni di scrittura è un processo lento e meticoloso",
@@ -849,7 +900,9 @@ def build(prs: Presentation, imgs: dict):
         "Nelle indagini complesse — contratti multi-pagina, archivi finanziari — il volume supera la capacità manuale",
         "Esempio pratico: screening di 10.000 pagine per individuare firme anomale  →  settimane di lavoro manuale vs. poche ore con AI",
         "L'AI non si stanca, non si distrae e applica gli stessi criteri a ogni documento",
-    ])
+    ], speaker_note="""
+Immaginate di dover esaminare 50.000 pagine di documentazione bancaria per trovare firme anomale. Un perito esperto, lavorando con rigore, può analizzare qualche decina di firme al giorno. L'AI può pre-filtrare questo archivio in poche ore, segnalando i casi sospetti per la revisione umana. Il perito si concentra sull'1-2% critico, non sull'altro 98%. Questo non riduce il ruolo del perito — lo rende molto più efficace.
+""")
 
     add_bullet(prs, "Limiti dell'Analisi Manuale: Soggettività e Riproducibilità", [
         "L'analisi visiva è intrinsecamente soggettiva: due periti esperti possono giungere a conclusioni diverse sullo stesso campione borderline",
@@ -857,14 +910,18 @@ def build(prs: Presentation, imgs: dict):
         "I tribunali richiedono metodologie verificabili e riproducibili da terze parti",
         "L'AI produce valori numerici precisi (es. inclinazione media 11.3°, spaziatura 4.2 mm) verificabili indipendentemente",
         "Questo non elimina il giudizio del perito, ma lo ancora a misurazioni oggettive",
-    ])
+    ], speaker_note="""
+Non è una critica ai periti — è una caratteristica strutturale del giudizio visivo umano. Due radiologi esperti non vedono esattamente la stessa cosa guardando la stessa radiografia. Due sommelier esperti non danno lo stesso voto allo stesso vino. La differenza in forensics è che i tribunali chiedono metodologie verificabili e riproducibili da terze parti. Quando l'AI dice 'inclinazione media 11.3 gradi', questa misurazione è verificabile indipendentemente da chiunque con lo stesso strumento.
+""")
 
     add_bullet(prs, "Limiti dell'Analisi Manuale: Scala degli Archivi Digitali", [
         "La digitalizzazione ha trasformato le controversie legali: i casi coinvolgono sempre più grandi archivi di documenti scansionati",
         "Esaminare manualmente 50.000 pagine di documentazione bancaria non è fattibile nei tempi processuali",
         "L'AI può pre-filtrare: individuare automaticamente le pagine con firme, segnalare anomalie, produrre priorità",
         "L'esaminatore si concentra poi sui casi segnalati come sospetti — moltiplicando l'efficacia del suo lavoro",
-    ])
+    ], speaker_note="""
+I processi moderni — frodi finanziarie, successioni contestate, falsi documentali — coinvolgono sempre più archivi digitali enormi. Non è realistico aspettarsi che l'analisi manuale tenga il passo con il volume di documenti nelle controversie commerciali e finanziarie contemporanee. L'AI cambia il modello operativo: invece di 'esamina tutto manualmente', diventa 'AI pre-filtra, esperto verifica i casi segnalati'. Il risultato è un uso molto più efficiente del tempo del perito.
+""")
 
     add_bullet(prs, "Cosa l'AI Aggiunge: Misurazioni Oggettive e Audit Trail", [
         "Misurazioni quantitative: l'AI produce numeri, non impressioni — angoli, distanze, score di similarità",
@@ -872,7 +929,9 @@ def build(prs: Presentation, imgs: dict):
         "Audit trail: ogni passo dell'analisi AI può essere registrato e documentato",
         "Il referto peritale supportato da misurazioni AI è più resistente alla contestazione tecnica in sede processuale",
         "Standard internazionali (OSAC, SWGDOC) stanno integrando le linee guida per gli strumenti computazionali",
-    ])
+    ], speaker_note="""
+Tre parole chiave: numeri, riproducibilità, documentazione. L'AI non dice 'questa firma sembra diversa'. Dice 'distanza coseno = 0.62'. Chiunque riesegua l'analisi con lo stesso modello e lo stesso file ottiene lo stesso numero — zero margine di interpretazione soggettiva nella misurazione. Ogni passo è loggato con timestamp, versione del modello e parametri. Un referto peritale supportato da questi dati è molto più resistente alla contestazione tecnica in aula.
+""")
 
     add_bullet(prs, "Modello di Collaborazione Uomo-AI", [
         "L'AI non è un sostituto dell'esaminatore forense — è un amplificatore delle sue capacità",
@@ -884,13 +943,19 @@ def build(prs: Presentation, imgs: dict):
         "  Interpreta i risultati nel contesto del caso",
         "  Applica conoscenza peritale specializzata",
         "  Produce un'opinione professionale con responsabilità legale",
-    ], note="Il modello ideale: AI per la quantificazione, esperto per l'interpretazione.")
+    ], note="Il modello ideale: AI per la quantificazione, esperto per l'interpretazione.",
+    speaker_note="""
+Il messaggio centrale è questo: l'AI fa il lavoro quantitativo su larga scala — misurazioni, screening, prioritizzazione. L'esperto porta ciò che la macchina non può: contesto del caso, conoscenza specializzata delle dinamiche della scrittura, giudizio professionale, responsabilità legale. Non è competizione, è specializzazione. Passiamo ora a vedere le sei aree concrete dove questo modello si applica.
+""")
 
     # =========================================================
     # SEZIONE 3 — Sei Aree di Applicazione
     # =========================================================
     add_section(prs, "03", "Sei Aree di Applicazione\nalla Grafologia Forense",
-                "Da HTR alla NER: la pipeline AI per l'esame dei documenti")
+                "Da HTR alla NER: la pipeline AI per l'esame dei documenti",
+                speaker_note="""
+Passiamo alle applicazioni concrete. Vi mostrerò sei aree dove l'AI è già utilizzabile oggi nella pratica forense — non in modo sperimentale, ma con strumenti stabili, documentati e con dataset di riferimento consolidati.
+""")
 
     # 1. HTR
     add_two_col(prs,
@@ -910,7 +975,9 @@ def build(prs: Presentation, imgs: dict):
             "Pre-elaborazione per pipeline di identificazione dell'autore",
             "Calcolo automatico del Character Error Rate (CER)",
         ],
-    )
+        speaker_note="""
+HTR significa Handwritten Text Recognition: il sistema legge la scrittura a mano come farebbe un dattilografo molto veloce e molto paziente. Il modello TrOCR è addestrato su milioni di esempi di testo manoscritto. Non interpreta il significato, non giudica la calligrafia — converte l'immagine in testo digitale ricercabile. Per una lettera anonima, questo significa: in pochi secondi avete un documento cercabile per parole chiave. Tecnicamente: BEiT è l'encoder visivo che 'vede' l'immagine, RoBERTa è il decoder linguistico che produce il testo.
+""")
 
     add_bullet(prs, "1. HTR — Casi d'Uso Forensi: Esempi Concreti", [
         "Caso: lettera anonima con minacce estorsive — l'HTR produce in secondi una trascrizione completa e ricercabile",
@@ -920,7 +987,10 @@ def build(prs: Presentation, imgs: dict):
         "  Ricerca di pattern linguistici",
         "  Estrazione di entità nominate (NER)",
         "  Analisi stilistica per identificazione dell'autore",
-    ], note="Modello: microsoft/trocr-base-handwritten  |  Supporto: testo scritto a mano in lingue romanze")
+    ], note="Modello: microsoft/trocr-base-handwritten  |  Supporto: testo scritto a mano in lingue romanze",
+    speaker_note="""
+Un esempio concreto: una lettera minatoria scritta a mano arriva in ufficio. Il sistema trascrive il testo in secondi. Il testo trascritto viene poi passato al modulo NER per estrarre nomi, luoghi, organizzazioni — senza leggere manualmente ogni parola. Questo è il potere della pipeline: ogni strumento fa il suo pezzo, il risultato finale è molto più della somma delle parti. Il limite principale: l'HTR trascrive quello che vede, possono esserci errori su calligrafia molto personale o degradata.
+""")
 
     # 2. Verifica firma — with siamese diagram in left column
     add_two_col(prs,
@@ -941,7 +1011,9 @@ def build(prs: Presentation, imgs: dict):
             "Output: score numerico per il perito — non un verdetto",
         ],
         left_image=imgs.get("siamese_network"),
-    )
+        speaker_note="""
+La rete siamese è elegante nella sua architettura: due rami identici elaborano la firma di riferimento e quella in esame, producendo per ognuna un vettore di caratteristiche nello stesso spazio matematico. Si misura poi la distanza tra questi vettori. Se la distanza è grande, le firme sono stilisticamente diverse. Il modello è addestrato su migliaia di coppie firma-autentica/firma-falsa dal dataset GPDS. Non riconosce 'questa è la firma di Mario' — riconosce pattern di tratti, proporzioni, velocità.
+""")
 
     add_bullet(prs, "2. Verifica Firma — Note Tecniche per l'Esaminatore", [
         "Il modello SigNet funziona meglio su firme isolate, su sfondo bianco, ad alta risoluzione",
@@ -949,7 +1021,10 @@ def build(prs: Presentation, imgs: dict):
         "I campioni demo sono pre-selezionati dal database CEDAR: il modello rileva correttamente la contraffazione",
         "Interpretazione: più alta è la distanza coseno, più probabile è la contraffazione",
         "In casi borderline (distanza vicina alla soglia): necessaria revisione manuale dell'esaminatore",
-    ], note="Modello: SigNet (luizgh/sigver) — pesi pre-addestrati su GPDS, campioni demo da CEDAR")
+    ], note="Modello: SigNet (luizgh/sigver) — pesi pre-addestrati su GPDS, campioni demo da CEDAR",
+    speaker_note="""
+Alcune precisazioni importanti per l'uso forense. Il modello funziona meglio su firme isolate, ad alta risoluzione, su sfondo chiaro. Le 'skilled forgeries' — imitatori molto abili che hanno esercitato a lungo la firma del soggetto — possono ingannare il modello, proprio come possono ingannare un esaminatore. Per questo il risultato va sempre interpretato dall'esaminatore nel contesto del caso: chi sono i possibili falsari? Avevano accesso a campioni della firma? Il sistema fornisce un dato quantitativo — il giudizio rimane umano.
+""")
 
     # 3. Rilevamento firma — with YOLO diagram
     add_two_col(prs,
@@ -969,7 +1044,9 @@ def build(prs: Presentation, imgs: dict):
             "Report con posizione e confidenza di ogni firma",
         ],
         left_image=imgs.get("yolo_detection"),
-    )
+        speaker_note="""
+YOLOv8 è il sistema di rilevamento di oggetti più usato al mondo in applicazioni industriali e scientifiche. Qui viene fine-tuned specificamente per trovare firme nei documenti. Scansiona l'immagine in tempo reale e disegna un riquadro attorno a ogni firma trovata, con un punteggio di confidenza. La pipeline naturale è: trova le firme nel documento con YOLO, poi passa ognuna a SigNet per verificarne l'autenticità. Questo è lo screening automatico di un intero contratto multi-pagina in pochi secondi.
+""")
 
     # 4. Identificazione scrittore
     add_two_col(prs,
@@ -989,7 +1066,9 @@ def build(prs: Presentation, imgs: dict):
             "Ricerca sulla provenienza di manoscritti storici",
             "Confronto tra campione anonimo e archivio di riferimento",
         ],
-    )
+        speaker_note="""
+Il sistema estrae le caratteristiche stilistiche della scrittura: HOG cattura come i tratti sono distribuiti e orientati nello spazio, LBP cattura le texture locali del tratto, le statistiche di run-length catturano la regolarità. L'SVM impara a distinguere lo stile di scrittore A da quello di scrittore B. Il risultato è una classifica di probabilità — non un verdetto di autoria, ma una lista di candidati su cui concentrare l'esame peritale. È il primo filtro quantitativo in un'indagine di attribuzione.
+""")
 
     # 5. Analisi grafologica
     add_two_col(prs,
@@ -1011,7 +1090,9 @@ def build(prs: Presentation, imgs: dict):
             "Rilevamento di variazioni anomale: stress, camouflage, mano diversa",
             "Dashboard visiva: metriche con annotazioni sull'immagine originale",
         ],
-    )
+        speaker_note="""
+Questo è il modulo più vicino al lavoro tradizionale del perito grafologo: misurare le caratteristiche della scrittura. La differenza è che la macchina le misura con precisione numerica e in modo identico su ogni campione. Un perito esperto potrebbe dire 'questa scrittura ha un'inclinazione destra moderata'. Il sistema dice 'inclinazione media 12.3 gradi, deviazione standard 2.1 gradi'. Queste misurazioni sono direttamente comparabili tra campioni diversi e documentabili nel referto.
+""")
 
     # 6. NER
     add_two_col(prs,
@@ -1031,7 +1112,9 @@ def build(prs: Presentation, imgs: dict):
             "Screening di archivi per la presenza di nomi specifici",
             "Pipeline completa: immagine → HTR → NER → grafo relazioni",
         ],
-    )
+        speaker_note="""
+NER significa Named Entity Recognition: il sistema legge il testo e identifica automaticamente le entità nominate — persone, organizzazioni, luoghi. Il modello WikiNEural è addestrato su Wikipedia in 9 lingue, quindi funziona bene su testi italiani senza configurazione aggiuntiva. È particolarmente potente come secondo passo dopo la trascrizione HTR: dall'immagine manoscritto alle entità strutturate in pochi secondi.
+""")
 
     add_bullet(prs, "6. NER — Esempio di Applicazione Forense", [
         "Testo trascritto da HTR (testamento olografo):",
@@ -1042,13 +1125,19 @@ def build(prs: Presentation, imgs: dict):
         "  [Persona] Giovanni Costa       (confidenza 97%)",
         "Applicazione: costruzione automatica del grafo ereditario da documenti multipli",
         "Lingue supportate: italiano, inglese, tedesco, spagnolo, francese, russo, olandese, polacco, cinese",
-    ], note="Modello: Babelscape/wikineural-multilingual-ner  |  Supporto multilingue nativo")
+    ], note="Modello: Babelscape/wikineural-multilingual-ner  |  Supporto multilingue nativo",
+    speaker_note="""
+Questo è l'esempio più concreto della pipeline completa. Un testamento olografo viene fotografato, TrOCR lo trascrive, WikiNEural estrae le entità. In pochi secondi avete una lista strutturata di tutte le persone, i luoghi e le organizzazioni menzionati nel documento — senza leggere manualmente ogni parola. Questo diventa ancora più potente quando avete decine di documenti: il sistema costruisce automaticamente un grafo delle relazioni tra tutti i soggetti citati nell'intero archivio.
+""")
 
     # =========================================================
     # SEZIONE 4 — GraphoLab: i Laboratori
     # =========================================================
     add_section(prs, "04", "GraphoLab — I Laboratori",
-                "Sette laboratori dimostrativi e un'applicazione interattiva")
+                "Sette laboratori dimostrativi e un'applicazione interattiva",
+                speaker_note="""
+Ora vediamo concretamente GraphoLab: i sette laboratori dimostrativi e la demo interattiva. Tutto il codice è aperto, documentato e può essere eseguito localmente o via Docker senza configurazione complessa.
+""")
 
     add_table_slide(prs,
         "GraphoLab: Panoramica dei 7 Laboratori",
@@ -1061,8 +1150,10 @@ def build(prs: Presentation, imgs: dict):
             ["05", "Identificazione dello scrittore", "HOG + SVM", "scikit-learn"],
             ["06", "Analisi caratteristiche grafologiche", "Image Processing", "OpenCV"],
             ["07", "Riconoscimento entità nominate", "Token Classification", "WikiNEural (Babelscape)"],
-        ]
-    )
+        ],
+        speaker_note="""
+Ecco la mappa completa dei sette lab. Ognuno è autonomo — potete eseguirli nell'ordine che preferite. Il Lab 01 non ha codice: è una presentazione concettuale pensata per questo tipo di pubblico. Dal Lab 02 in poi c'è codice funzionante, dati di esempio inclusi, e una sezione dedicata ai casi d'uso forensi. I modelli scaricano automaticamente da Hugging Face al primo avvio.
+""")
 
     add_bullet(prs, "Lab 01 — Introduzione: AI e Grafologia Forense", [
         "Notebook in stile presentazione, senza codice eseguibile",
@@ -1071,7 +1162,10 @@ def build(prs: Presentation, imgs: dict):
         "  Definizione di grafologia forense e ambiti di applicazione",
         "  Mappa concettuale della pipeline: acquisizione → preprocessing → AI → referto",
         "  Panoramica dei laboratori successivi",
-    ], note="File: notebooks/01_intro_forensic_graphology.ipynb")
+    ], note="File: notebooks/01_intro_forensic_graphology.ipynb",
+    speaker_note="""
+Il Lab 01 è pensato proprio per chi è in sala oggi: una presentazione interattiva che spiega i concetti senza richiedere competenze di programmazione. È anche ottimo materiale da condividere con clienti, colleghi magistrati o consulenti tecnici di parte che vogliono capire cosa fa l'AI in questo contesto, senza dover eseguire codice.
+""")
 
     add_bullet_with_image(prs, "Lab 02 — Riconoscimento del Testo Manoscritto",
         [
@@ -1084,7 +1178,10 @@ def build(prs: Presentation, imgs: dict):
         ],
         imgs.get("handwritten"),
         note="File: notebooks/02_handwritten_ocr_trocr.ipynb  |  Prerequisiti: transformers, torch, Pillow",
-        font_size=17)
+        font_size=17,
+        speaker_note="""
+TrOCR è il modello di punta di Microsoft per il riconoscimento del testo manoscritto, disponibile gratuitamente su Hugging Face. Scarica automaticamente al primo avvio — circa 350 MB. Il lab include tre demo: testo su riga singola, documento multi-riga con segmentazione automatica delle righe, e calcolo del CER per valutare l'accuratezza su un testo di riferimento noto.
+""")
 
     add_bullet_with_image(prs, "Lab 03 — Verifica dell'Autenticità della Firma",
         [
@@ -1098,7 +1195,10 @@ def build(prs: Presentation, imgs: dict):
         ],
         imgs.get("signatures_comparison"),
         note="File: notebooks/03_signature_verification_siamese.ipynb  |  Richiede: models/signet.pth",
-        font_size=17)
+        font_size=17,
+        speaker_note="""
+Questo è il cuore del sistema per la verifica delle firme. SigNet è il modello standard nel settore — i suoi pesi pre-addestrati sono disponibili pubblicamente nel repository luizgh/sigver. I campioni di demo provengono dal database CEDAR e sono pre-selezionati per mostrare sia casi di firma autentica che di contraffazione chiaramente rilevabile. Nella demo Gradio potete caricare le vostre firme e vedere il risultato in tempo reale.
+""")
 
     add_bullet(prs, "Lab 04 — Rilevamento Firma nei Documenti", [
         "Modello: YOLOv8s fine-tuned (tech4humans/yolov8s-signature-detector)",
@@ -1108,7 +1208,10 @@ def build(prs: Presentation, imgs: dict):
         "  Inferenza YOLOv8: localizzazione firme con bounding box",
         "  Ritaglio automatico di ogni firma → input per Lab 03",
         "Pipeline dimostrativa: Rileva → Estrai → Verifica",
-    ], note="File: notebooks/04_signature_detection_yolo.ipynb  |  Prerequisiti: ultralytics, opencv-python")
+    ], note="File: notebooks/04_signature_detection_yolo.ipynb  |  Prerequisiti: ultralytics, opencv-python",
+    speaker_note="""
+YOLOv8 richiede un token Hugging Face perché il modello è 'gated' — richiede l'accettazione delle condizioni d'uso sul sito Hugging Face, poi il download è gratuito. Il lab mostra la pipeline completa: il documento entra, le firme vengono rilevate e ritagliate, ogni ritaglio viene passato a SigNet per la verifica. È l'unico lab con questa dipendenza esterna, ma la configurazione è un'operazione da cinque minuti.
+""")
 
     add_bullet(prs, "Lab 05 — Identificazione dello Scrittore", [
         "Tecnica: estrazione feature HOG + classificatore SVM (scikit-learn)",
@@ -1117,7 +1220,10 @@ def build(prs: Presentation, imgs: dict):
         "  Estrazione delle feature stilistiche da ogni campione",
         "  Addestramento SVM con cross-validation leave-one-out",
         "  Input anonimo → lista ordinata di autori candidati con score",
-    ], note="File: notebooks/05_writer_identification.ipynb  |  Prerequisiti: torch, scikit-learn")
+    ], note="File: notebooks/05_writer_identification.ipynb  |  Prerequisiti: torch, scikit-learn",
+    speaker_note="""
+Il lab sull'identificazione dello scrittore usa scikit-learn — nessuna GPU necessaria, gira su qualsiasi laptop. Il database di esempio include cinque scrittori con stili diversi. Per un uso forense reale, sostituite questo database con campioni autentici degli scrittori candidati: il sistema si riaddestra automaticamente. L'output è una classifica di probabilità — un punto di partenza quantitativo per l'indagine peritale.
+""")
 
     add_bullet(prs, "Lab 06 — Analisi delle Caratteristiche Grafologiche", [
         "Strumenti: OpenCV + numpy + scipy",
@@ -1127,7 +1233,10 @@ def build(prs: Presentation, imgs: dict):
         "  Spaziatura media tra parole e caratteri",
         "  Distribuzione dell'intensità dei pixel (stima pressione tratto)",
         "Confronto opzionale affiancato tra due campioni",
-    ], note="File: notebooks/06_graphological_feature_analysis.ipynb  |  Prerequisiti: opencv-python, scipy")
+    ], note="File: notebooks/06_graphological_feature_analysis.ipynb  |  Prerequisiti: opencv-python, scipy",
+    speaker_note="""
+L'analisi grafologica usa OpenCV — libreria di computer vision classica, stabile, documentata e gratuita. Non richiede GPU. La pipeline produce una dashboard visiva con le metriche annotate sull'immagine originale — ottimo per la presentazione in tribunale o per il referto peritale. Il confronto affiancato tra due campioni rende immediatamente visibili le differenze nelle caratteristiche misurate.
+""")
 
     add_bullet(prs, "Lab 07 — Riconoscimento delle Entità Nominate (NER)", [
         "Modello: Babelscape/wikineural-multilingual-ner (BERT, 9 lingue)",
@@ -1136,7 +1245,10 @@ def build(prs: Presentation, imgs: dict):
         "Demo 3: pipeline completa HTR → NER (immagine → entità)",
         "Demo 4: distribuzione delle entità e analisi della confidenza",
         "Output: testo con evidenziazione colorata + tabella riepilogativa",
-    ], note="File: notebooks/07_named_entity_recognition.ipynb  |  Prerequisiti: transformers, torch")
+    ], note="File: notebooks/07_named_entity_recognition.ipynb  |  Prerequisiti: transformers, torch",
+    speaker_note="""
+Il Lab 07 è il più potente per l'analisi di documenti testuali. Il modello WikiNEural funziona su 9 lingue senza configurazione aggiuntiva — italiano, inglese, tedesco, spagnolo e altre. La Demo 3 è la più significativa: parte da un'immagine di testo manoscritto e arriva alle entità nominate estratte, tutto in un unico flusso automatico. L'output con evidenziazione colorata è direttamente utilizzabile in un referto.
+""")
 
     add_bullet(prs, "Demo Interattiva Gradio — 6 Tab in Italiano", [
         "Applicazione web: python app/grapholab_demo.py  →  http://localhost:7860",
@@ -1147,7 +1259,9 @@ def build(prs: Presentation, imgs: dict):
         "Tab 5 — Identificazione Scrittore: carica campione → candidati ordinati per probabilità",
         "Tab 6 — Analisi Grafologica: carica testo manoscritto → dashboard di metriche",
         "Tutta l'interfaccia è in italiano",
-    ])
+    ], speaker_note="""
+La demo interattiva è l'interfaccia pensata per chi non vuole usare Python o Jupyter direttamente. Si apre nel browser, è completamente in italiano, e permette di caricare immagini reali e vedere i risultati in tempo reale. Perfetta per mostrare le funzionalità a clienti, colleghi o stakeholder non tecnici. Avviamola ora per la dimostrazione live — http://localhost:7860.
+""")
 
     add_bullet_with_image(prs,
         "Pipeline End-to-End: dal Documento al Referto Forense",
@@ -1160,7 +1274,10 @@ def build(prs: Presentation, imgs: dict):
             "Output: referto con score autenticità, entità nominate, metriche grafologiche",
         ],
         imgs.get("pipeline_e2e"),
-        note="La pipeline è modulare: ogni lab può essere usato autonomamente o in combinazione.")
+        note="La pipeline è modulare: ogni lab può essere usato autonomamente o in combinazione.",
+        speaker_note="""
+Questo diagramma mostra come tutti i pezzi si connettono in una pipeline end-to-end. Un documento entra nel sistema: YOLO trova le firme, SigNet le verifica, TrOCR trascrive il testo, NER estrae le entità, l'analisi grafologica misura le caratteristiche. L'output finale è un referto strutturato con dati quantitativi per ogni dimensione di analisi. La pipeline è modulare: ogni componente può essere usato autonomamente o in combinazione a seconda del tipo di caso.
+""")
 
     add_bullet(prs, "Come Avviare GraphoLab", [
         "Modalità locale (Python 3.11):",
@@ -1172,13 +1289,18 @@ def build(prs: Presentation, imgs: dict):
         "  docker compose up jupyter   →  http://localhost:8888 (token: grapholab)",
         "  docker compose up gradio    →  http://localhost:7860",
         "Cache modelli nel volume Docker grapholab-hf-cache (download unico)",
-    ], font_size=17)
+    ], font_size=17, speaker_note="""
+Per chi vuole provare in locale: serve Python 3.11, poi quattro comandi e siete operativi. Per chi preferisce Docker: due comandi e tutto funziona in un ambiente isolato, senza toccare il sistema. I modelli vengono scaricati automaticamente la prima volta — Hugging Face li mette in cache nel volume Docker, quindi i download successivi sono istantanei. Il token HF_TOKEN è necessario solo per il Lab 04 (YOLOv8).
+""")
 
     # =========================================================
     # SEZIONE 5 — Considerazioni Etiche e Conclusioni
     # =========================================================
     add_section(prs, "05", "Considerazioni Etiche\ne Conclusioni",
-                "L'AI al servizio della giustizia: opportunità e responsabilità")
+                "L'AI al servizio della giustizia: opportunità e responsabilità",
+                speaker_note="""
+Chiudiamo con le considerazioni etiche e legali. Questo è un argomento che i professionisti forensi conoscono bene: la tecnologia è neutrale, ma l'uso che se ne fa non lo è. Alcune riflessioni fondamentali prima di concludere.
+""")
 
     add_bullet(prs, "Bias nei Dati e Spiegabilità", [
         "Bias nei dati di addestramento:",
@@ -1188,7 +1310,9 @@ def build(prs: Presentation, imgs: dict):
         "  Le conclusioni peritali devono essere giustificabili e aperte alla contestazione",
         "  La soglia decisionale deve essere documentata e motivata",
         "  L'AI va usata in modo spiegabile in termini non tecnici",
-    ])
+    ], speaker_note="""
+Due punti critici. Il bias: un modello addestrato solo su firme europee di adulti sani in condizioni normali potrebbe non funzionare bene su firme di anziani, di persone con condizioni neurologiche, o di culture grafiche diverse. La validazione sul tipo specifico di documenti del caso è quindi fondamentale prima dell'uso forense. La spiegabilità: un giudice deve poter capire come il sistema ha prodotto la sua conclusione. 'Il modello di deep learning ha detto così' non è una risposta accettabile. L'esaminatore deve saper spiegare la metodologia in termini comprensibili.
+""")
 
     add_bullet(prs, "Catena di Custodia e Standard di Riferimento", [
         "Catena di custodia digitale:",
@@ -1198,7 +1322,9 @@ def build(prs: Presentation, imgs: dict):
         "  OSAC — Organization of Scientific Area Committees for Forensic Science",
         "  SWGDOC — Scientific Working Group for Questioned Documents",
         "  Entrambi stanno sviluppando linee guida per gli strumenti computazionali nell'esame dei documenti",
-    ])
+    ], speaker_note="""
+La catena di custodia digitale è fondamentale e spesso sottovalutata. I file originali devono essere conservati con hash crittografico — SHA-256 o simili — per dimostrare che non sono stati alterati tra l'acquisizione e l'analisi. Ogni passo dell'analisi AI deve essere documentato: quale versione del modello, quali parametri, quando è stata eseguita. OSAC e SWGDOC sono gli organismi di riferimento internazionale per gli standard forensi e stanno sviluppando linee guida specifiche per gli strumenti computazionali nell'esame dei documenti questionati.
+""")
 
     add_bullet(prs, "AI come Strumento, Non come Sostituto", [
         "L'AI non sostituisce il perito calligrafo — lo potenzia",
@@ -1208,7 +1334,9 @@ def build(prs: Presentation, imgs: dict):
         "  Il giudizio professionale e la responsabilità legale del referto",
         "L'AI comprime in minuti ciò che richiederebbe giorni, trasformando impressioni visive in misurazioni precise",
         "Il risultato è un'analisi più rigorosa, più difendibile e più utile alla ricerca della verità",
-    ])
+    ], speaker_note="""
+Il messaggio conclusivo e più importante: l'AI è uno strumento nelle mani del professionista. Il referto forense è firmato dall'esperto, non dal computer. La responsabilità legale è dell'esaminatore, non dell'algoritmo. L'AI comprime in minuti ciò che richiederebbe giorni — ma l'interpretazione, il giudizio contestuale, la responsabilità rimangono esclusivamente umani. L'obiettivo di GraphoLab è fornire questi strumenti in modo accessibile, documentato e utilizzabile nella pratica professionale quotidiana.
+""")
 
     # Final slide
     slide = _blank_slide(prs)
@@ -1225,6 +1353,9 @@ def build(prs: Presentation, imgs: dict):
                  Inches(1), Inches(4.5), Inches(11.3), Inches(0.6),
                  font_size=16, color=RGBColor(0xAA, 0xBB, 0xCC),
                  align=PP_ALIGN.CENTER)
+    _set_speaker_note(slide, """
+Grazie per l'attenzione. Sono a disposizione per qualsiasi domanda — sia sui contenuti tecnici che sulle applicazioni pratiche nel vostro lavoro quotidiano. Se volete sperimentare con i vostri dati, i lab sono disponibili e possiamo pianificare una sessione pratica. Il repository GraphoLab è pubblico su GitHub — trovate il link nella slide.
+""")
 
 
 # ---------------------------------------------------------------------------
