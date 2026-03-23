@@ -65,13 +65,20 @@ docker compose up
 
 ```
 GraphoLab/
-├── notebooks/              ← Jupyter labs (01–06)
+├── notebooks/              ← Jupyter labs (01–07)
 ├── app/
-│   └── grapholab_demo.py   ← Gradio interactive demo
+│   └── grapholab_demo.py   ← Gradio interactive demo (6 tabs, Italian UI)
 ├── data/
-│   └── samples/            ← Place your handwriting/signature images here
+│   └── samples/
+│       ├── writer_XX/      ← Writer identification database (5 writers, 41 samples each)
+│       └── *.png           ← Handwriting and signature sample images
 ├── docs/
-│   └── NOTEBOOKS_GUIDE.md  ← Detailed lab descriptions
+│   ├── NOTEBOOKS_GUIDE.md       ← Detailed lab descriptions (EN)
+│   ├── NOTEBOOKS_GUIDE_IT.md    ← Detailed lab descriptions (IT)
+│   └── GraphoLab_Presentazione.pptx  ← Presentation with speaker notes
+├── models/                 ← Pre-trained model weights (e.g. signet.pth)
+├── tools/
+│   └── generate_presentation.py ← Script to regenerate the PPTX
 ├── Dockerfile
 ├── docker-compose.yml
 └── requirements.txt
@@ -82,6 +89,8 @@ GraphoLab/
 ## Sample Data
 
 Add handwriting and signature images to `data/samples/`. Each notebook also generates synthetic fallback images automatically, so labs run end-to-end without any real data.
+
+The writer identification database (`data/samples/writer_XX/`) contains five writers with 41 samples each, generated with system TTF fonts (Ink Free, Lucida Handwriting, Segoe Print, Segoe Script, Comic Sans). Replace with real handwriting scans for production use.
 
 See [data/samples/README.md](data/samples/README.md) for naming conventions.
 
