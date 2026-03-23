@@ -650,36 +650,59 @@ _WRITER_NAMES = {
 
 
 def _make_synthetic_writer(writer_id: int, sample_id: int) -> Image.Image:
-    """Generate a synthetic handwriting sample with style determined by writer_id."""
+    """Generate a synthetic handwriting sample using system TTF fonts."""
     rng = np.random.default_rng(writer_id * 1000 + sample_id)
-    w, h = 256, 128
+
+    _FONTS_DIR = Path("C:/Windows/Fonts")
+    # Each writer gets a distinct handwriting font + base size
+    _WRITER_FONTS = [
+        ("Inkfree.ttf",  19),   # Writer 0 — Ink Free (corsivo informale)
+        ("LHANDW.TTF",   17),   # Writer 1 — Lucida Handwriting (elegante)
+        ("segoepr.ttf",  18),   # Writer 2 — Segoe Print (stampatello mano)
+        ("segoesc.ttf",  16),   # Writer 3 — Segoe Script (corsivo moderno)
+        ("comic.ttf",    18),   # Writer 4 — Comic Sans (tondo informale)
+    ]
+    font_name, base_size = _WRITER_FONTS[writer_id % len(_WRITER_FONTS)]
+    font_size = base_size + int(rng.integers(-1, 2))
+    try:
+        font = ImageFont.truetype(str(_FONTS_DIR / font_name), font_size)
+    except Exception:
+        font = ImageFont.load_default()
+
+    # Ink darkness: each writer has a characteristic pen pressure
+    ink_value = int([25, 15, 35, 20, 30][writer_id % 5] + rng.integers(-5, 6))
+
+    _SENTENCES = [
+        "il gatto dorme sul tetto",
+        "la casa è piccola e bella",
+        "oggi il cielo è molto blu",
+        "scrivere a mano è un'arte",
+        "ogni persona ha uno stile",
+        "il sole tramonta a ovest",
+        "leggo un libro ogni sera",
+        "la penna scorre sul foglio",
+        "le parole raccontano storie",
+        "questo è un campione scritto",
+    ]
+    lines = [
+        _SENTENCES[(writer_id * 3 + sample_id + i) % len(_SENTENCES)]
+        for i in range(3)
+    ]
+
+    w, h = 320, 140
     img = Image.new("L", (w, h), 255)
     draw = ImageDraw.Draw(img)
 
-    # Per-writer style parameters
-    slant = [-20, -8, 0, 12, 25][writer_id % 5]          # degrees
-    spacing = [14, 18, 22, 16, 20][writer_id % 5]        # px between chars
-    stroke_w = [1, 2, 1, 3, 2][writer_id % 5]
-    size = [18, 22, 16, 24, 20][writer_id % 5]
+    line_gap = font_size + 12 + int(rng.integers(-2, 3))
+    y = 10
+    for line in lines:
+        x = 8 + int(rng.integers(-3, 4))
+        draw.text((x, y), line, fill=ink_value, font=font)
+        y += line_gap
 
-    chars = "abcdefghijklmnopqrstuvwxyz"
-    x, y = 10, 20
-    for row in range(3):
-        xc = 10 + rng.integers(-2, 3)
-        for _ in range(12):
-            c = chars[rng.integers(len(chars))]
-            sx = int(slant * size / 100)
-            pts = [
-                (xc + sx, y),
-                (xc, y + size),
-                (xc + spacing // 2 + sx, y + size // 2),
-            ]
-            draw.line(pts[:2], fill=0, width=stroke_w)
-            draw.line(pts[1:], fill=0, width=stroke_w)
-            xc += spacing + rng.integers(-2, 3)
-            if xc > w - 20:
-                break
-        y += size + 8 + rng.integers(-2, 3)
+    # Slight rotation simulates unaligned paper
+    angle = float(rng.uniform(-1.5, 1.5))
+    img = img.rotate(angle, fillcolor=255, expand=False)
 
     return img
 
