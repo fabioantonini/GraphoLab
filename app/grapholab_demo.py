@@ -61,6 +61,7 @@ NER_MODEL = "Babelscape/wikineural-multilingual-ner"
 
 _trocr_processor = None
 _trocr_model = None
+_easyocr_reader = None
 _yolo_model = None
 _ner_pipeline = None
 _writer_clf = None
@@ -75,6 +76,15 @@ def get_trocr():
         _trocr_model = VisionEncoderDecoderModel.from_pretrained(TROCR_MODEL).to(DEVICE)
         _trocr_model.eval()
     return _trocr_processor, _trocr_model
+
+
+def get_easyocr():
+    global _easyocr_reader
+    if _easyocr_reader is None:
+        import easyocr
+        print("Loading EasyOCR (Italian)...")
+        _easyocr_reader = easyocr.Reader(["it", "en"], gpu=DEVICE == "cuda")
+    return _easyocr_reader
 
 
 def get_ner():
@@ -208,47 +218,13 @@ def preprocess_signature(pil_img: Image.Image) -> torch.Tensor:
 # Tab 1 — Handwritten OCR
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _segment_lines(pil_img: Image.Image, min_gap: int = 5, pad: int = 6) -> list[Image.Image]:
-    """Split a multi-line handwritten image into individual line crops."""
-    gray = np.array(pil_img.convert("L"))
-    _, binary = cv2.threshold(
-        cv2.GaussianBlur(gray, (3, 3), 0), 0, 255,
-        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU,
-    )
-    # Horizontal projection: ink pixels per row
-    proj = binary.sum(axis=1)
-    in_line, start, segments = False, 0, []
-    for r, v in enumerate(proj):
-        if v > 0 and not in_line:
-            in_line, start = True, r
-        elif v == 0 and in_line:
-            if r - start >= min_gap:
-                segments.append((start, r))
-            in_line = False
-    if in_line:
-        segments.append((start, len(proj)))
-    if not segments:
-        return [pil_img]
-    h, w = gray.shape
-    return [
-        pil_img.crop((0, max(0, y0 - pad), w, min(h, y1 + pad)))
-        for y0, y1 in segments
-    ]
-
-
 def htr_transcribe(image: np.ndarray) -> str:
     if image is None:
         return "Carica un'immagine di testo manoscritto."
-    processor, model = get_trocr()
-    pil_img = Image.fromarray(image).convert("RGB")
-    lines = _segment_lines(pil_img)
-    texts = []
-    for line_img in lines:
-        pixel_values = processor(images=line_img, return_tensors="pt").pixel_values.to(DEVICE)
-        with torch.no_grad():
-            generated_ids = model.generate(pixel_values)
-        texts.append(processor.batch_decode(generated_ids, skip_special_tokens=True)[0])
-    return "\n".join(texts)
+    reader = get_easyocr()
+    # EasyOCR handles line detection internally; paragraph=True preserves reading order
+    results = reader.readtext(image, detail=0, paragraph=True)
+    return "\n".join(results)
 
 
 htr_tab = gr.Interface(
@@ -262,8 +238,7 @@ htr_tab = gr.Interface(
         "Funziona sia su immagini a riga singola che su documenti con più righe "
         "(le righe vengono separate automaticamente prima dell'analisi).\n\n"
         "**Quando usarlo:** lettere anonime, documenti storici, verbali scritti a mano.\n\n"
-        "*Tecnologia: modello di riconoscimento ottico della scrittura a mano "
-        "(`microsoft/trocr-large-handwritten`)*"
+        "*Tecnologia: EasyOCR con supporto nativo italiano*"
     ),
     article=(
         "### Come leggere il risultato\n"
