@@ -49,7 +49,7 @@ from huggingface_hub import hf_hub_download
 # ──────────────────────────────────────────────────────────────────────────────
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-TROCR_MODEL = "microsoft/trocr-base-handwritten"
+TROCR_MODEL = "microsoft/trocr-large-handwritten"
 YOLO_REPO = "tech4humans/yolov8s-signature-detector"
 YOLO_FILENAME = "yolov8s.pt"
 SIG_THRESHOLD = 0.35  # cosine distance threshold for signature verification
@@ -263,7 +263,7 @@ htr_tab = gr.Interface(
         "(le righe vengono separate automaticamente prima dell'analisi).\n\n"
         "**Quando usarlo:** lettere anonime, documenti storici, verbali scritti a mano.\n\n"
         "*Tecnologia: modello di riconoscimento ottico della scrittura a mano "
-        "(`microsoft/trocr-base-handwritten`)*"
+        "(`microsoft/trocr-large-handwritten`)*"
     ),
     article=(
         "### Come leggere il risultato\n"
