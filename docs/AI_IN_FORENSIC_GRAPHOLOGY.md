@@ -49,6 +49,26 @@ None of this eliminates the need for human expertise. What AI provides is an add
 
 ---
 
+## At a Glance: AI vs Traditional Analysis
+
+| Aspect | Traditional Method | With AI Support |
+|--------|--------------------|-----------------|
+| Analysis speed | One examiner, one sample at a time | Thousands of samples processed in parallel |
+| Type of measurement | Descriptive ("the signature appears similar") | Numerical and verifiable (e.g. "similarity: 87%") |
+| Scalability | Limited by available human time | Scales across archives of thousands of documents |
+| Reproducibility | Depends on the individual examiner | Identical on every repetition of the analysis |
+| Irreplaceable strength | Context, experience, final judgement | Speed, consistency, quantification |
+
+### In Plain Language
+
+**On speed.** Think of the difference between a detective working alone and one with a full office of assistants: the experienced detective makes the final call, but the assistants prepare the case files in seconds rather than days.
+
+**On objectivity.** Instead of writing in a report "this signature looks different from the original", the system produces a concrete figure: "similarity score: 34 out of 100". A number can be challenged and verified in court; a visual impression, however authoritative, is harder to defend under cross-examination.
+
+**On scalability.** Finding a specific signature among 10,000 scanned document pages would take weeks of manual work. An AI system does it in minutes — just as a search engine finds a word across billions of web pages.
+
+---
+
 ## Six Areas of Application
 
 ### 1. Automatic Transcription of Handwritten Text

@@ -49,6 +49,26 @@ Nulla di tutto questo elimina la necessità dell'esperienza umana. Ciò che l'AI
 
 ---
 
+## A Colpo d'Occhio: AI vs Analisi Tradizionale
+
+| Aspetto | Metodo Tradizionale | Con il Supporto dell'AI |
+|---------|---------------------|-------------------------|
+| Velocità di analisi | Un perito, un campione alla volta | Migliaia di campioni in parallelo |
+| Tipo di misurazione | Descrittiva ("la firma appare simile") | Numerica e verificabile (es. "similarità: 87%") |
+| Scalabilità | Limitata dal tempo umano disponibile | Scala su archivi di migliaia di documenti |
+| Riproducibilità | Dipende dall'esaminatore | Identica ad ogni ripetizione dell'analisi |
+| Punto di forza irrinunciabile | Contesto, esperienza, giudizio finale | Velocità, consistenza, quantificazione |
+
+### In Parole Semplici
+
+**Sulla velocità.** È come confrontare un detective che lavora da solo con uno che ha a disposizione un intero ufficio di assistenti: il detective esperto prende la decisione finale, ma gli assistenti preparano i dossier in pochi secondi invece che in giorni.
+
+**Sull'oggettività.** Invece di scrivere in perizia "questa firma mi sembra diversa dall'originale", il sistema produce un dato concreto: "la similarità è 34 su 100". Un numero è verificabile e contestabile in tribunale; un'impressione visiva, per quanto autorevole, è più difficile da difendere.
+
+**Sulla scalabilità.** Trovare una firma specifica tra 10.000 pagine di documenti scansionati richiederebbe settimane di lavoro manuale. Un sistema AI lo fa in pochi minuti — esattamente come un motore di ricerca trova una parola in miliardi di pagine web.
+
+---
+
 ## Sei Aree di Applicazione
 
 ### 1. Trascrizione Automatica di Testi Manoscritti
