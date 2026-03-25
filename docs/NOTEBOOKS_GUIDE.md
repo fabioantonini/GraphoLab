@@ -1,6 +1,6 @@
 # GraphoLab — Notebooks Guide
 
-A practical guide to the GraphoLab demo labs on AI-assisted forensic graphology.
+A practical guide to the GraphoLab demo labs on AI-assisted forensic graphology (8 labs).
 
 ---
 
@@ -10,12 +10,13 @@ Forensic graphology is the scientific examination of handwriting and signatures 
 
 | Task | AI Approach | Forensic Application |
 |------|-------------|----------------------|
-| Handwritten text transcription | Transformer OCR (TrOCR) | Anonymous letters, historical documents |
+| Handwritten text transcription | Transformer OCR (TrOCR / EasyOCR) | Anonymous letters, historical documents |
 | Signature authenticity | Siamese Neural Network (SigNet) | Checks, contracts, wills |
 | Signature location in documents | Object Detection (YOLOv8) | Document processing pipelines |
 | Writer identification | Feature extraction + classifier | Disputed authorship |
 | Graphological feature analysis | OpenCV + ML | Profiling, comparative analysis |
 | Named entity recognition | Token classification (BERT-NER) | People, places, orgs in documents |
+| Deep OCR (Italian cursive) | Vision-Language Model (dots.ocr 1.7B) | Wills, cursive handwriting, complex layouts |
 
 ---
 
@@ -205,20 +206,68 @@ Uses a multilingual **BERT-NER** model (`Babelscape/wikineural-multilingual-ner`
 
 ---
 
+## Lab 08 — dots.ocr: OCR with Vision-Language Model
+
+**File:** `notebooks/08_dots_ocr_vlm.ipynb`
+
+Uses **dots.ocr** (`rednote-hilab/dots.ocr`) — a 1.7B Vision-Language Model — to transcribe handwritten
+text from document images. Unlike CNN-based OCR, the LLM component uses linguistic context to correct
+visual ambiguities, making it particularly effective on Italian cursive.
+
+**What you will learn:**
+
+- How VLM-based OCR differs from TrOCR and EasyOCR (architecture comparison table)
+- How to perform a hardware check and select the right inference configuration (CPU / GPU)
+- How to load and run dots.ocr via `transformers` with adaptive dtype and attention
+- How to measure and compare transcription quality (CER) between EasyOCR and dots.ocr
+
+**Demo flow:**
+
+1. Hardware check — detects GPU/RAM and selects CPU fp32 or CUDA bf16 automatically
+2. Load dots.ocr from Hugging Face (~3.5 GB bf16, ~7 GB fp32)
+3. Transcribe a writer_00 sample (single 320×140 image)
+4. Transcribe the full `testamento_writer00.png` document
+5. Transcribe Lorella real-world handwriting samples
+6. Side-by-side EasyOCR vs dots.ocr comparison + CER measurement
+
+**Forensic use cases:**
+
+- High-quality OCR on Italian cursive handwriting
+- Documents with tables, formulas, or complex layouts
+- When EasyOCR results are insufficient for forensic accuracy requirements
+
+**Prerequisites:** `transformers>=4.49`, `qwen_vl_utils`, `torch`, `Pillow`, `psutil`, `accelerate`
+
+**Hardware note:** On CPU (~7 GB free RAM), inference takes 2–5 min per image. On GPU ≥8 GB VRAM,
+5–10 seconds per image. Not suitable for interactive real-time demos — use EasyOCR in the Gradio app.
+
+**Installation (one-time — see notebook cell):**
+
+```bash
+git clone https://github.com/rednote-hilab/dots.ocr.git DotsOCR
+pip install -e DotsOCR
+pip install qwen_vl_utils accelerate
+```
+
+**Reference:** [arxiv 2512.02498](https://arxiv.org/abs/2512.02498) — RedNote / Xiaohongshu, Dec 2024.
+
+---
+
 ## Interactive Demo (Gradio)
 
 **File:** `app/grapholab_demo.py`
 
-A browser-based multi-tab Gradio application (fully in Italian) aggregating the six main AI capabilities:
+A browser-based multi-tab Gradio application (fully in Italian) aggregating all seven AI capabilities:
 
 | Tab | Functionality |
 |-----|--------------|
-| OCR Manoscritto | Upload an image (single or multi-line) → transcribed text |
+| OCR Manoscritto | Upload an image (single or multi-line) → transcribed text (EasyOCR) |
 | Verifica Firma | Upload two signatures → genuine / forged verdict |
 | Rilevamento Firma | Upload a document → annotated image with detected signatures |
 | Riconoscimento Entità | Enter text → colour-coded named entities + summary table |
 | Identificazione Scrittore | Upload a handwriting sample → ranked candidate authors with probability scores |
 | Analisi Grafologica | Upload handwritten text → visual metrics dashboard |
+| Pipeline Forense | Upload a document (+optional reference signature) → full forensic report (all 6 steps) |
 
 **Running locally:**
 

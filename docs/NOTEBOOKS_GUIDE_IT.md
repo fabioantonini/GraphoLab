@@ -1,6 +1,6 @@
 # GraphoLab — Guida ai Laboratori
 
-Guida pratica ai laboratori dimostrativi di GraphoLab sulla grafologia forense assistita dall'AI.
+Guida pratica ai laboratori dimostrativi di GraphoLab sulla grafologia forense assistita dall'AI (8 lab).
 
 ---
 
@@ -10,12 +10,13 @@ La grafologia forense è l'esame scientifico della scrittura a mano e delle firm
 
 | Compito | Approccio AI | Applicazione Forense |
 |---------|-------------|----------------------|
-| Trascrizione di testo manoscritto | Transformer OCR (TrOCR) | Lettere anonime, documenti storici |
+| Trascrizione di testo manoscritto | Transformer OCR (TrOCR / EasyOCR) | Lettere anonime, documenti storici |
 | Autenticità della firma | Siamese Neural Network (SigNet) | Assegni, contratti, testamenti |
 | Localizzazione firma nei documenti | Object Detection (YOLOv8) | Pipeline di analisi documentale |
 | Identificazione dello scrittore | Estrazione feature + classificatore | Paternità contestata |
 | Analisi caratteristiche grafologiche | OpenCV + ML | Profiling, analisi comparativa |
 | Riconoscimento entità nominate | Classificazione token (BERT-NER) | Persone, luoghi, organizzazioni nei documenti |
+| OCR profondo (corsivo italiano) | Vision-Language Model (dots.ocr 1.7B) | Testamenti, corsivo, documenti complessi |
 
 ---
 
@@ -205,20 +206,65 @@ Utilizza un modello **BERT-NER** multilingue (`Babelscape/wikineural-multilingua
 
 ---
 
+## Lab 08 — dots.ocr: OCR con Vision-Language Model
+
+**File:** `notebooks/08_dots_ocr_vlm.ipynb`
+
+Utilizza **dots.ocr** (`rednote-hilab/dots.ocr`) — un Vision-Language Model da 1,7 miliardi di parametri — per trascrivere testo manoscritto da immagini di documenti. A differenza degli OCR CNN, il componente LLM sfrutta il contesto linguistico per correggere le ambiguità visive, risultando più efficace sul corsivo italiano.
+
+**Cosa imparerai:**
+
+- Come l'OCR basato su VLM si differenzia da TrOCR ed EasyOCR (tabella comparativa delle architetture)
+- Come eseguire un check hardware e scegliere la configurazione di inferenza giusta (CPU / GPU)
+- Come caricare ed eseguire dots.ocr via `transformers` con dtype e attention adattativi
+- Come misurare e confrontare la qualità della trascrizione (CER) tra EasyOCR e dots.ocr
+
+**Flusso della demo:**
+
+1. Check hardware — rileva GPU/RAM e seleziona automaticamente CPU fp32 o CUDA bf16
+2. Caricamento dots.ocr da Hugging Face (~3,5 GB bf16, ~7 GB fp32)
+3. Trascrizione di un campione writer_00 (immagine singola 320×140)
+4. Trascrizione del documento completo `testamento_writer00.png`
+5. Trascrizione di campioni reali dal dataset Lorella
+6. Confronto EasyOCR vs dots.ocr affiancati + misurazione CER
+
+**Casi d'uso forensi:**
+
+- OCR di alta qualità su scrittura corsiva italiana
+- Documenti con tabelle, formule o layout complessi
+- Quando i risultati di EasyOCR non sono sufficienti per i requisiti di accuratezza forense
+
+**Prerequisiti:** `transformers>=4.49`, `qwen_vl_utils`, `torch`, `Pillow`, `psutil`, `accelerate`
+
+**Nota hardware:** Su CPU (~7 GB RAM libera), l'inferenza richiede 2–5 min per immagine. Su GPU ≥8 GB VRAM, 5–10 secondi. Non adatto a demo interattive in tempo reale — usare EasyOCR nell'app Gradio.
+
+**Installazione (una tantum — vedi cella nel notebook):**
+
+```bash
+git clone https://github.com/rednote-hilab/dots.ocr.git DotsOCR
+pip install -e DotsOCR
+pip install qwen_vl_utils accelerate
+```
+
+**Riferimento:** [arxiv 2512.02498](https://arxiv.org/abs/2512.02498) — RedNote / Xiaohongshu, dic 2024.
+
+---
+
 ## Demo Interattiva (Gradio)
 
 **File:** `app/grapholab_demo.py`
 
-Un'applicazione Gradio multi-tab accessibile da browser (completamente in italiano) che aggrega le sei principali funzionalità AI:
+Un'applicazione Gradio multi-tab accessibile da browser (completamente in italiano) che aggrega tutte e sette le funzionalità AI:
 
 | Tab | Funzionalità |
 |-----|-------------|
-| OCR Manoscritto | Carica un'immagine (riga singola o multi-riga) → testo trascritto |
+| OCR Manoscritto | Carica un'immagine (riga singola o multi-riga) → testo trascritto (EasyOCR) |
 | Verifica Firma | Carica due firme → verdetto autentica / falsa |
 | Rilevamento Firma | Carica un documento → immagine annotata con firme rilevate |
 | Riconoscimento Entità | Inserisci testo → entità evidenziate + tabella riepilogativa |
 | Identificazione Scrittore | Carica un campione di scrittura → lista di autori candidati con punteggi di probabilità |
 | Analisi Grafologica | Carica testo manoscritto → dashboard di metriche visive |
+| Pipeline Forense | Carica documento (+ firma opzionale) → referto forense completo (tutti i 6 step) |
 
 **Avvio in locale:**
 

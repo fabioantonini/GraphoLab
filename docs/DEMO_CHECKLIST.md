@@ -1,6 +1,6 @@
 # GraphoLab — Demo Checklist
 
-Everything you need to run all seven GraphoLab notebooks end-to-end, including which AI models are downloaded automatically and which sample images you must provide.
+Everything you need to run all eight GraphoLab notebooks end-to-end, including which AI models are downloaded automatically and which sample images you must provide.
 
 ---
 
@@ -23,10 +23,14 @@ All Hugging Face models are fetched on first run and cached locally (or in the D
 | Model | Downloaded by | Size | Cache location |
 |-------|--------------|------|----------------|
 | **TrOCR** (`microsoft/trocr-base-handwritten`) | `transformers` | ~400 MB | `~/.cache/huggingface/` |
+| **EasyOCR** (Italian + English models) | `easyocr` | ~100 MB | `~/.EasyOCR/` |
 | **YOLOv8s signature detector** (`tech4humans/yolov8s-signature-detector`) | `huggingface_hub` | ~22 MB | `~/.cache/huggingface/` |
 | **WikiNEural NER** (`Babelscape/wikineural-multilingual-ner`) | `transformers` | ~700 MB | `~/.cache/huggingface/` |
+| **dots.ocr** (`rednote-hilab/dots.ocr`) | `transformers` | ~3.5 GB (bf16) / ~7 GB (fp32 CPU) | `~/.cache/huggingface/` |
 
-> **Internet connection is required on the first run of Labs 02, 04, and 07.** Subsequent runs use the cached models.
+> **Internet connection is required on the first run of Labs 02, 04, 07, and 08.** Subsequent runs use the cached models.
+>
+> **dots.ocr (Lab 08) also requires a one-time `git clone`** — see the installation cell in the notebook.
 
 ## AI Models — Manual Download Required
 
@@ -160,6 +164,30 @@ The `Babelscape/wikineural-multilingual-ner` model (~700 MB) is downloaded autom
 
 ---
 
+### Lab 08 — dots.ocr (VLM-based OCR)
+
+| File | Description |
+| ---- | ----------- |
+| `writer_00/sample_000.png` | Single writer_00 sample (shared with Lab 05) |
+| `testamento_writer00.png` | Full testamento document — generate with `scripts/create_testamento_writer00.py` |
+| `lorella/*.png` | (optional) Real-world handwriting samples |
+
+**Requirements:**
+
+- First run: internet connection for model download (~3.5 GB bf16 or ~7 GB fp32 on CPU)
+- On CPU: ~7 GB free RAM; 2–5 min per image
+- On GPU: ≥4 GB VRAM recommended
+
+**One-time installation (before first run):**
+
+```bash
+git clone https://github.com/rednote-hilab/dots.ocr.git DotsOCR
+pip install -e DotsOCR
+pip install qwen_vl_utils accelerate
+```
+
+---
+
 ## Naming Convention Summary
 
 ```
@@ -197,7 +225,7 @@ Lab 01 needs nothing. Lab 05 needs per-writer subdirectories (not covered by thi
 ## Quick Checklist Before Running
 
 - [ ] Python environment created and `requirements.txt` installed
-- [ ] Internet connection available (first-run model downloads: TrOCR ~400 MB, WikiNEural NER ~700 MB, YOLOv8 ~22 MB)
+- [ ] Internet connection available (first-run model downloads: TrOCR ~400 MB, EasyOCR ~100 MB, WikiNEural NER ~700 MB, YOLOv8 ~22 MB, dots.ocr ~3.5 GB)
 - [ ] `models/signet.pth` downloaded from [luizgh/sigver](https://github.com/luizgh/sigver)
 - [ ] `data/samples/` directory exists
 - [ ] Handwritten text images placed (`handwritten_text_*.png`, `handwritten_multiline_01.png`)
