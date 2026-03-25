@@ -218,12 +218,47 @@ def preprocess_signature(pil_img: Image.Image) -> torch.Tensor:
 # Tab 1 — Handwritten OCR
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _preprocess_for_htr(image: np.ndarray) -> np.ndarray:
+    """Light preprocessing: deskew + contrast enhancement, keeping grayscale gradients
+    so EasyOCR's CRNN recogniser retains letter-shape information."""
+    import cv2
+
+    # 1. Grayscale
+    if image.ndim == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = image.copy()
+
+    # 2. Deskew via minAreaRect on ink pixels
+    _, bw = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    coords = np.column_stack(np.where(bw > 0))
+    if len(coords) > 100:
+        angle = cv2.minAreaRect(coords)[-1]
+        if angle < -45:
+            angle = 90 + angle
+        else:
+            angle = -angle
+        if abs(angle) > 0.3:
+            (h, w) = gray.shape
+            M = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
+            gray = cv2.warpAffine(gray, M, (w, h),
+                                  flags=cv2.INTER_CUBIC,
+                                  borderMode=cv2.BORDER_REPLICATE)
+
+    # 3. CLAHE contrast enhancement (adaptive, preserves gradients)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+
+    # 4. Back to 3-channel for EasyOCR
+    return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+
+
 def htr_transcribe(image: np.ndarray) -> str:
     if image is None:
         return "Carica un'immagine di testo manoscritto."
     reader = get_easyocr()
-    # EasyOCR handles line detection internally; paragraph=True preserves reading order
-    results = reader.readtext(image, detail=0, paragraph=True)
+    processed = _preprocess_for_htr(image)
+    results = reader.readtext(processed, detail=0, paragraph=True)
     return "\n".join(results)
 
 
@@ -683,8 +718,22 @@ def _make_synthetic_writer(writer_id: int, sample_id: int) -> Image.Image:
 
 
 def _preprocess_writer_img(pil_img: Image.Image) -> np.ndarray:
-    """Convert PIL image to normalised grayscale array of WRITER_IMG_SIZE."""
+    """Convert PIL image to normalised grayscale array of WRITER_IMG_SIZE.
+
+    For portrait documents (full page), extracts a representative landscape
+    crop from the text body before resizing, preserving stroke-level features
+    that the model was trained on (word-level 320×140 samples).
+    """
     gray = pil_img.convert("L")
+    w, h = gray.size
+    # If image is portrait, take a landscape crop from the upper text body
+    # (avoids distorting full-page documents when resizing to landscape target)
+    target_ratio = WRITER_IMG_SIZE[1] / WRITER_IMG_SIZE[0]  # 256/128 = 2.0
+    if h > w:
+        crop_h = int(w / target_ratio)
+        top = h // 6  # skip top margin, start from first text lines
+        top = min(top, max(0, h - crop_h))
+        gray = gray.crop((0, top, w, top + crop_h))
     arr = np.array(gray, dtype=np.float32)
     # OTSU threshold → invert so ink=1, bg=0
     thresh = filters.threshold_otsu(arr) if arr.std() > 1 else 128.0
@@ -1028,11 +1077,221 @@ grapho_tab = gr.Interface(
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Tab 7 — Forensic Pipeline
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _detect_and_crop(
+    image: np.ndarray,
+    conf_threshold: float = 0.3,
+) -> tuple[np.ndarray, np.ndarray | None, str]:
+    """Run YOLO signature detection and return (annotated, first_crop, summary).
+
+    Gracefully degrades when YOLO is not available (missing HF_TOKEN).
+    """
+    annotated = image.copy()
+    try:
+        yolo = get_yolo()
+    except Exception:
+        return annotated, None, "⚠️ Rilevamento firma non disponibile (HF_TOKEN mancante)."
+
+    pil_img = Image.fromarray(image).convert("RGB")
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        pil_img.save(tmp.name)
+        tmp_path = tmp.name
+
+    results = yolo.predict(tmp_path, conf=conf_threshold, verbose=False)
+    os.unlink(tmp_path)
+
+    result = results[0]
+    first_crop: np.ndarray | None = None
+    count = 0
+
+    if result.boxes is not None:
+        for box in result.boxes:
+            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
+            conf = float(box.conf[0].cpu())
+            cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 0, 0), 2)
+            cv2.putText(annotated, f"Sig #{count+1}  {conf:.0%}",
+                        (x1, max(y1 - 8, 0)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+            if count == 0:
+                x1c = max(0, x1); y1c = max(0, y1)
+                x2c = min(image.shape[1], x2); y2c = min(image.shape[0], y2)
+                if x2c > x1c and y2c > y1c:
+                    first_crop = image[y1c:y2c, x1c:x2c]
+            count += 1
+
+    summary = (
+        f"Rilevat{'a' if count == 1 else 'e'} {count} firma{'' if count == 1 else 'e'}."
+        if count > 0
+        else "Nessuna firma rilevata nel documento."
+    )
+    return annotated, first_crop, summary
+
+
+def run_pipeline(
+    doc_image: np.ndarray,
+    ref_sig: np.ndarray | None,
+) -> tuple:
+    """Orchestrate all 6 AI tools in sequence on a single document."""
+    _NONE = gr.update(visible=True)  # sentinel — results column becomes visible
+
+    if doc_image is None:
+        msg = "Carica il documento da analizzare."
+        return (doc_image, msg, msg, [], msg, msg, None, msg, doc_image, msg, None, msg, gr.update(visible=False))
+
+    # ── Step 1: Signature Detection ───────────────────────────────────────────
+    step1_img, sig_crop, step1_summary = _detect_and_crop(doc_image)
+
+    # ── Step 2: HTR ───────────────────────────────────────────────────────────
+    step2_text = htr_transcribe(doc_image)
+
+    # ── Step 3: NER ───────────────────────────────────────────────────────────
+    text_for_ner = step2_text if step2_text and step2_text.strip() else ""
+    if text_for_ner:
+        step3_hl, step3_summary = ner_extract(text_for_ner)
+    else:
+        step3_hl, step3_summary = [], "Nessun testo trascritto disponibile per il NER."
+
+    # ── Step 4: Writer Identification ─────────────────────────────────────────
+    step4_report, step4_chart = writer_identify(doc_image)
+
+    # ── Step 5: Graphological Analysis ────────────────────────────────────────
+    step5_report, step5_vis = grapho_analyse(doc_image)
+
+    # ── Step 6: Signature Verification ────────────────────────────────────────
+    if ref_sig is not None:
+        query_for_verify = sig_crop if sig_crop is not None else doc_image
+        step6_report, step6_chart = sig_verify(ref_sig, None, query_for_verify)
+        step6_note = ""
+        if sig_crop is None:
+            step6_note = "\n\n⚠️ Nessuna firma estratta dal documento — confronto eseguito sull'immagine intera."
+        step6_report = step6_report + step6_note
+    else:
+        step6_report = (
+            "Firma di riferimento non fornita.\n\n"
+            "Per abilitare questo step carica una firma autentica nota "
+            "nel campo 'Firma di riferimento' sopra."
+        )
+        step6_chart = None
+
+    # ── Referto finale ────────────────────────────────────────────────────────
+    final_report = (
+        "## Referto Forense Integrato\n\n"
+        "---\n\n"
+        f"### Step 1 — Rilevamento Firma\n{step1_summary}\n\n"
+        f"### Step 2 — Trascrizione HTR\n```\n{step2_text}\n```\n\n"
+        f"### Step 3 — Entità Nominate\n{step3_summary}\n\n"
+        f"### Step 4 — Identificazione Scrittore\n{step4_report}\n\n"
+        f"### Step 5 — Caratteristiche Grafologiche\n{step5_report}\n\n"
+        f"### Step 6 — Verifica Firma\n{step6_report}\n\n"
+        "---\n\n"
+        "*Referto generato automaticamente da GraphoLab. "
+        "Tutti i risultati hanno carattere indicativo e devono essere valutati "
+        "da un perito calligrafo qualificato.*"
+    )
+
+    return (
+        step1_img, step1_summary,
+        step2_text,
+        step3_hl, step3_summary,
+        step4_report, step4_chart,
+        step5_report, step5_vis,
+        step6_report, step6_chart,
+        final_report,
+        gr.update(visible=True),
+    )
+
+
+with gr.Blocks() as pipeline_tab:
+    gr.Markdown(
+        "## Pipeline Forense Integrata\n\n"
+        "Carica il documento da esaminare (es. testamento olografo, lettera anonima, contratto) "
+        "e, opzionalmente, una firma di riferimento autentica. "
+        "Il sistema eseguirà in sequenza tutti e sei gli strumenti AI e produrrà un **referto forense integrato**.\n\n"
+        "| Step | Strumento | Input |\n"
+        "|------|-----------|-------|\n"
+        "| 1 | Rilevamento Firma (YOLOv8) | Documento |\n"
+        "| 2 | Trascrizione HTR (EasyOCR) | Documento |\n"
+        "| 3 | Riconoscimento Entità — NER | Testo da Step 2 |\n"
+        "| 4 | Identificazione Scrittore | Documento |\n"
+        "| 5 | Analisi Grafologica | Documento |\n"
+        "| 6 | Verifica Firma (SigNet) | Firma rif. + crop da Step 1 |\n"
+    )
+
+    with gr.Row():
+        pipe_doc = gr.Image(
+            label="Documento da analizzare (testamento, lettera, atto)",
+            type="numpy",
+        )
+        pipe_ref = gr.Image(
+            label="Firma di riferimento nota — opzionale (per Step 6)",
+            type="numpy",
+        )
+
+    pipe_btn = gr.Button("▶  Avvia Analisi Forense", variant="primary", size="lg")
+
+    with gr.Column(visible=False) as pipe_results:
+        gr.Markdown("### Step 1 — Rilevamento Firma (YOLOv8)")
+        with gr.Row():
+            out_s1_img = gr.Image(label="Documento annotato", type="numpy")
+            out_s1_txt = gr.Textbox(label="Riepilogo", lines=3)
+
+        gr.Markdown("### Step 2 — Trascrizione HTR (EasyOCR)")
+        out_s2_txt = gr.Textbox(label="Testo trascritto", lines=6)
+
+        gr.Markdown("### Step 3 — Riconoscimento Entità (NER)")
+        out_s3_hl = gr.HighlightedText(
+            label="Testo con entità evidenziate",
+            combine_adjacent=False,
+            color_map={"PER": "red", "ORG": "blue", "LOC": "green", "MISC": "orange"},
+        )
+        out_s3_md = gr.Markdown()
+
+        gr.Markdown("### Step 4 — Identificazione Scrittore")
+        with gr.Row():
+            out_s4_md = gr.Markdown()
+            out_s4_img = gr.Image(label="Probabilità per scrittore", type="numpy")
+
+        gr.Markdown("### Step 5 — Analisi Grafologica")
+        with gr.Row():
+            out_s5_md = gr.Markdown()
+            out_s5_img = gr.Image(label="Immagine annotata", type="numpy")
+
+        gr.Markdown("### Step 6 — Verifica Firma (SigNet)")
+        with gr.Row():
+            out_s6_txt = gr.Textbox(label="Esito verifica", lines=6)
+            out_s6_img = gr.Image(label="Confronto visivo", type="numpy")
+
+        gr.Markdown("---")
+        out_final = gr.Markdown()
+
+    pipe_btn.click(
+        fn=run_pipeline,
+        inputs=[pipe_doc, pipe_ref],
+        outputs=[
+            out_s1_img, out_s1_txt,
+            out_s2_txt,
+            out_s3_hl, out_s3_md,
+            out_s4_md, out_s4_img,
+            out_s5_md, out_s5_img,
+            out_s6_txt, out_s6_img,
+            out_final,
+            pipe_results,
+        ],
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Main App
 # ──────────────────────────────────────────────────────────────────────────────
 
 demo = gr.TabbedInterface(
-    interface_list=[htr_tab, sig_verify_tab, sig_detect_tab, ner_tab, writer_tab, grapho_tab],
+    interface_list=[
+        htr_tab, sig_verify_tab, sig_detect_tab,
+        ner_tab, writer_tab, grapho_tab, pipeline_tab,
+    ],
     tab_names=[
         "OCR Manoscritto",
         "Verifica Firma",
@@ -1040,6 +1299,7 @@ demo = gr.TabbedInterface(
         "Riconoscimento Entità",
         "Identificazione Scrittore",
         "Analisi Grafologica",
+        "Pipeline Forense",
     ],
     title="GraphoLab — Intelligenza Artificiale in Grafologia Forense",
 )
