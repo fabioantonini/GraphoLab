@@ -1284,13 +1284,166 @@ with gr.Blocks() as pipeline_tab:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Tab 8 — Datazione Documenti
+# ──────────────────────────────────────────────────────────────────────────────
+
+import re as _re
+from datetime import datetime as _datetime
+
+# Regex L1 — date italiane e numeriche
+_DATE_PATTERNS = [
+    # "10 gennaio 2024" / "10 gennaio del 2024"
+    r"\b(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|"
+    r"luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(?:del\s+)?(\d{4})\b",
+    # "10 gen. 2024" / abbreviazioni
+    r"\b(\d{1,2})\s+(gen|feb|mar|apr|mag|giu|lug|ago|set|ott|nov|dic)\.?\s+(\d{4})\b",
+    # "10/01/2024" o "10-01-2024" o "10.01.2024"
+    r"\b(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})\b",
+    # "gennaio 2024" (senza giorno)
+    r"\b(gennaio|febbraio|marzo|aprile|maggio|giugno|"
+    r"luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(\d{4})\b",
+]
+_DATE_RE = _re.compile("|".join(_DATE_PATTERNS), _re.IGNORECASE)
+
+
+def _try_dateparser(raw: str) -> _datetime | None:
+    """Parse a raw date string to datetime using dateparser (Italian-aware)."""
+    try:
+        import dateparser
+        dt = dateparser.parse(
+            raw,
+            languages=["it", "en"],
+            settings={"PREFER_DAY_OF_MONTH": "first", "RETURN_AS_TIMEZONE_AWARE": False},
+        )
+        if dt and 1800 < dt.year < 2200:
+            return dt
+    except Exception:
+        pass
+    return None
+
+
+def extract_dates(text: str) -> list[tuple[str, _datetime]]:
+    """Extract and normalize dates from OCR text.
+
+    Returns a list of (raw_string, datetime) pairs, sorted chronologically.
+    Uses regex L1 first; falls back to scanning NER DATE entities if nothing found.
+    """
+    found: list[tuple[str, _datetime]] = []
+
+    # L1 — regex
+    for m in _DATE_RE.finditer(text):
+        raw = m.group(0).strip()
+        dt = _try_dateparser(raw)
+        if dt:
+            found.append((raw, dt))
+
+    # L2 — NER fallback (filters DATE entities from wikineural NER)
+    if not found:
+        try:
+            ner_html, ner_md = ner_extract(text)
+            # Extract DATE spans from NER Markdown (pattern: **WORD** `DATE`)
+            for raw in _re.findall(r"\*\*([^*]+)\*\*\s*`DATE`", ner_md or ""):
+                dt = _try_dateparser(raw)
+                if dt:
+                    found.append((raw, dt))
+        except Exception:
+            pass
+
+    # De-duplicate by normalized date
+    seen: set[str] = set()
+    unique: list[tuple[str, _datetime]] = []
+    for raw, dt in found:
+        key = dt.strftime("%Y-%m-%d")
+        if key not in seen:
+            seen.add(key)
+            unique.append((raw, dt))
+
+    return sorted(unique, key=lambda x: x[1])
+
+
+def dating_rank(files: list) -> str:
+    """Main function for the Datazione Documenti tab.
+
+    Accepts a list of uploaded files (gr.File objects), runs OCR on each,
+    extracts dates, and returns a Markdown table sorted chronologically.
+    """
+    if not files:
+        return "Carica almeno un'immagine di documento."
+
+    reader = get_easyocr()
+    rows: list[tuple[str, str, _datetime | None]] = []
+
+    for f in files:
+        path = f.name if hasattr(f, "name") else str(f)
+        name = path.split("\\")[-1].split("/")[-1]
+        try:
+            img = Image.open(path).convert("RGB")
+            img_np = np.array(img)
+            processed = _preprocess_for_htr(img_np)
+            ocr_lines = reader.readtext(processed, detail=0, paragraph=True)
+            text = "\n".join(ocr_lines)
+            dates = extract_dates(text)
+            if dates:
+                raw, dt = dates[0]          # prima data plausibile
+                rows.append((name, raw, dt))
+            else:
+                rows.append((name, "—  data non trovata", None))
+        except Exception as e:
+            rows.append((name, f"Errore: {e}", None))
+
+    # Sort: dated docs first (chronologically), undated last
+    dated   = [(n, r, dt) for n, r, dt in rows if dt is not None]
+    undated = [(n, r, dt) for n, r, dt in rows if dt is None]
+    dated.sort(key=lambda x: x[2])
+    sorted_rows = dated + undated
+
+    lines = [
+        "## Datazione Documenti — Risultati\n",
+        "| # | Documento | Data estratta | Data normalizzata |",
+        "|---|-----------|--------------|-------------------|",
+    ]
+    for i, (name, raw, dt) in enumerate(sorted_rows, 1):
+        norm = dt.strftime("%Y-%m-%d") if dt else "—"
+        lines.append(f"| {i} | `{name}` | {raw} | {norm} |")
+
+    if not dated:
+        lines.append("\n> Nessuna data rilevata nei documenti caricati.")
+    else:
+        lines.append(
+            f"\n*{len(dated)} document{'o' if len(dated)==1 else 'i'} datato/i, "
+            f"{len(undated)} senza data.*"
+        )
+
+    return "\n".join(lines)
+
+
+dating_tab = gr.Interface(
+    fn=dating_rank,
+    inputs=gr.File(
+        label="Immagini documenti (carica 2 o più)",
+        file_count="multiple",
+        file_types=["image"],
+    ),
+    outputs=gr.Markdown(label="Documenti ordinati per data"),
+    title="Datazione Documenti",
+    description=(
+        "Carica più immagini di documenti manoscritti o stampati: il sistema estrarrà "
+        "le date presenti nel testo e restituirà i documenti ordinati cronologicamente.\n\n"
+        "**Quando usarlo:** confrontare testamenti di date diverse, ordinare una corrispondenza, "
+        "ricostruire la sequenza temporale di un caso.\n\n"
+        "*Tecnologia: EasyOCR + regex italiana + dateparser multilingue*"
+    ),
+)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Main App
 # ──────────────────────────────────────────────────────────────────────────────
 
 demo = gr.TabbedInterface(
     interface_list=[
         htr_tab, sig_verify_tab, sig_detect_tab,
-        ner_tab, writer_tab, grapho_tab, pipeline_tab,
+        ner_tab, writer_tab, grapho_tab, pipeline_tab, dating_tab,
     ],
     tab_names=[
         "OCR Manoscritto",
@@ -1300,6 +1453,7 @@ demo = gr.TabbedInterface(
         "Identificazione Scrittore",
         "Analisi Grafologica",
         "Pipeline Forense",
+        "Datazione Documenti",
     ],
     title="GraphoLab — Intelligenza Artificiale in Grafologia Forense",
 )

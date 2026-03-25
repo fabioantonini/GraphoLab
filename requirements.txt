@@ -34,3 +34,6 @@ scikit-image>=0.21.0
 
 # OCR with native Italian support
 easyocr>=1.7.0
+
+# Date parsing (multilingual, used in Datazione Documenti tab)
+dateparser>=1.1
