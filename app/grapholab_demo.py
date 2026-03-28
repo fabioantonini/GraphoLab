@@ -66,6 +66,8 @@ _yolo_model = None
 _ner_pipeline = None
 _writer_clf = None
 _writer_le = None
+_writer_X_scaled = None       # scaled training features for open-set distance check
+_writer_dist_threshold = None  # auto-calibrated rejection threshold
 import threading as _threading
 _writer_lock = _threading.Lock()
 
@@ -854,9 +856,26 @@ def _get_writer_model():
     ])
     clf.fit(X, y_enc)
 
+    # Open-set calibration: compute max intra-class nearest-neighbour distance
+    # in the scaled feature space, then use 2× as the rejection threshold.
+    global _writer_X_scaled, _writer_dist_threshold
+    X_scaled = clf.named_steps["scaler"].transform(X)
+    max_intra = 0.0
+    for cls in np.unique(y_enc):
+        Xc = X_scaled[y_enc == cls]
+        if len(Xc) < 2:
+            continue
+        diff = Xc[:, np.newaxis, :] - Xc[np.newaxis, :, :]
+        dists = np.sqrt((diff ** 2).sum(axis=2))
+        np.fill_diagonal(dists, np.inf)
+        max_intra = max(max_intra, dists.min(axis=1).max())
+    _writer_X_scaled = X_scaled
+    _writer_dist_threshold = max_intra * 2.0
+
     _writer_clf = clf
     _writer_le = le
-    print(f"Writer model ready — {len(le.classes_)} writers, {len(X)} samples.")
+    print(f"Writer model ready — {len(le.classes_)} writers, {len(X)} samples. "
+          f"Rejection threshold: {_writer_dist_threshold:.3f}")
     return _writer_clf, _writer_le
 
 
@@ -898,19 +917,40 @@ def writer_identify(image: np.ndarray) -> tuple[str, np.ndarray]:
     names = le.inverse_transform(order)
     scores = proba[order]
 
+    # Open-set check: nearest-neighbour distance in scaled feature space
+    is_unknown = False
+    if _writer_X_scaled is not None and _writer_dist_threshold is not None:
+        feat_scaled = clf.named_steps["scaler"].transform([feat])[0]
+        min_dist = np.linalg.norm(_writer_X_scaled - feat_scaled, axis=1).min()
+        is_unknown = min_dist > _writer_dist_threshold
+
     # Markdown report
     rows = "\n".join(
         f"| {'🥇' if i == 0 else '🥈' if i == 1 else '🥉' if i == 2 else '  '} "
         f"**{name}** | {score:.1%} |"
         for i, (name, score) in enumerate(zip(names, scores))
     )
-    report = (
-        "**Identificazione Scrittore — Risultati**\n\n"
-        "| Candidato | Probabilità |\n"
-        "|-----------|-------------|\n"
-        + rows
-        + "\n\n*I risultati si basano su caratteristiche HOG + LBP + statistiche dei tratti.*"
-    )
+    if is_unknown:
+        report = (
+            "**⚠️ Scrittore non identificato nel database**\n\n"
+            "La scrittura analizzata non corrisponde a nessuno degli scrittori noti. "
+            "Le probabilità di seguito hanno valore puramente indicativo "
+            "e **non devono essere usate per un'attribuzione**.\n\n"
+            "| Candidato | Probabilità (riferimento) |\n"
+            "|-----------|---------------------------|\n"
+            + rows
+            + "\n\n*La distanza dal campione più simile nel database supera la soglia "
+              "di affidabilità. Aggiungere campioni dello scrittore al database per "
+              "un confronto diretto.*"
+        )
+    else:
+        report = (
+            "**Identificazione Scrittore — Risultati**\n\n"
+            "| Candidato | Probabilità |\n"
+            "|-----------|-------------|\n"
+            + rows
+            + "\n\n*I risultati si basano su caratteristiche HOG + LBP + statistiche dei tratti.*"
+        )
     if _load_real_writer_samples() is None:
         report += (
             "\n\n⚠️ *Dati sintetici: il modello è addestrato su scritture generate "
@@ -919,12 +959,17 @@ def writer_identify(image: np.ndarray) -> tuple[str, np.ndarray]:
 
     # Bar chart
     fig, ax = plt.subplots(figsize=(5, max(2.5, len(names) * 0.55)))
-    colors = ["#1B3A6B" if i == 0 else "#C8973A" if i == 1 else "#9eb8e0"
-              for i in range(len(names))]
+    if is_unknown:
+        colors = ["#aaaaaa"] * len(names)
+        chart_title = "Scrittore non nel database — solo riferimento"
+    else:
+        colors = ["#1B3A6B" if i == 0 else "#C8973A" if i == 1 else "#9eb8e0"
+                  for i in range(len(names))]
+        chart_title = "Probabilità per scrittore"
     ax.barh(names[::-1], scores[::-1] * 100, color=colors[::-1])
     ax.set_xlabel("Probabilità (%)")
     ax.set_xlim(0, 105)
-    ax.set_title("Probabilità per scrittore")
+    ax.set_title(chart_title)
     for i, (name, score) in enumerate(zip(names[::-1], scores[::-1])):
         ax.text(score * 100 + 1, i, f"{score:.1%}", va="center", fontsize=9)
     plt.tight_layout()
