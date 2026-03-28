@@ -62,6 +62,23 @@ Uses **TrOCR** (`microsoft/trocr-base-handwritten` on Hugging Face) to automatic
 
 **Prerequisites:** `transformers`, `torch`, `Pillow`
 
+### EasyOCR vs TrOCR — Architecture Comparison
+
+The Gradio app uses **EasyOCR** instead of TrOCR for interactive inference. EasyOCR is **not** a Transformer — it uses a classic CNN + RNN pipeline:
+
+| | EasyOCR | TrOCR |
+|---|---|---|
+| Architecture | CNN + BiLSTM + CTC | Transformer encoder-decoder |
+| Text detector | CRAFT (CNN heatmap) | — (line-level input) |
+| Visual encoder | VGG-based CNN | BEiT (Vision Transformer) |
+| Decoder | Bidirectional LSTM + CTC | RoBERTa |
+| Linguistic context | Limited (local LSTM) | Broad (global self-attention) |
+| CPU speed | ~1–3 s/image | ~10–20 s/image |
+| Italian cursive quality | Adequate | Better |
+| RAM footprint | ~200 MB | ~400 MB |
+
+**When to use which:** EasyOCR is the right choice for interactive demos (fast, low memory). TrOCR — and especially dots.ocr (Lab 08) — are preferable when transcription accuracy on complex Italian cursive is the priority.
+
 ---
 
 ## Lab 03 — Signature Authenticity Verification
@@ -92,6 +109,26 @@ Uses a **Siamese Neural Network** (SigNet architecture) to compare two signature
 **Note:** Pre-trained SigNet weights (`models/signet.pth`) were trained on the **GPDS** signature dataset. Demo sample pairs are sourced from the **CEDAR** signature database (`data/samples/genuine_N_M.png` / `forged_N_M.png`) and pre-selected so the model correctly detects the forgery.
 
 **Reference:** [luizgh/sigver](https://github.com/luizgh/sigver) — SigNet implementation and pre-trained weights.
+
+### Generalisation to signers not in the training set
+
+SigNet uses **metric learning** (Siamese network with contrastive loss), not a standard classifier. This is a key architectural distinction:
+
+- A **classifier** learns "who is person X" — it cannot generalise to unseen identities.
+- A **Siamese/metric model** learns "do these two signatures come from the same hand?" — the question is identity-agnostic and generalises to any signer, including those never seen during training.
+
+In practice this means SigNet can be applied to **any pair of signatures**, regardless of whether the signer appears in GPDS or CEDAR.
+
+**Known limitations:**
+
+| Limitation | Detail |
+|---|---|
+| Cultural/stylistic bias | GPDS contains primarily Brazilian/Portuguese signatures; Italian or non-Latin signatures may fall outside the training distribution |
+| Threshold calibration | The 0.35 cosine-distance threshold was optimised on CEDAR; for signers with unusually compact or elaborate styles it may need adjustment |
+| Forgery type | Trained on *skilled* forgeries (forger practised the target signature); performance on naive forgeries is generally better, on professional forgeries comparable to a human expert |
+| Image quality | Performance degrades with photos of documents on coloured, folded, or stamp-overlaid paper |
+
+**Practical guidance:** Use SigNet as a **first-level screening tool**. It is not certified for standalone forensic legal testimony; results should always be reviewed by a qualified examiner.
 
 ---
 

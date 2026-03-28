@@ -62,6 +62,23 @@ Utilizza **TrOCR** (`microsoft/trocr-base-handwritten` su Hugging Face) per tras
 
 **Prerequisiti:** `transformers`, `torch`, `Pillow`
 
+### EasyOCR vs TrOCR — Confronto architetturale
+
+L'app Gradio usa **EasyOCR** invece di TrOCR per l'inferenza interattiva. EasyOCR **non** è un Transformer — utilizza una pipeline classica CNN + RNN:
+
+| | EasyOCR | TrOCR |
+|---|---|---|
+| Architettura | CNN + BiLSTM + CTC | Transformer encoder-decoder |
+| Rilevamento testo | CRAFT (mappa di calore CNN) | — (input a livello di riga) |
+| Encoder visivo | CNN VGG-based | BEiT (Vision Transformer) |
+| Decoder | LSTM bidirezionale + CTC | RoBERTa |
+| Contesto linguistico | Limitato (LSTM locale) | Ampio (self-attention globale) |
+| Velocità su CPU | ~1–3 s/immagine | ~10–20 s/immagine |
+| Qualità corsivo italiano | Discreta | Migliore |
+| Memoria RAM | ~200 MB | ~400 MB |
+
+**Quando usare quale:** EasyOCR è la scelta giusta per le demo interattive (veloce, poco memoria). TrOCR — e soprattutto dots.ocr (Lab 08) — sono preferibili quando la qualità della trascrizione su corsivo italiano complesso è prioritaria.
+
 ---
 
 ## Lab 03 — Verifica dell'Autenticità della Firma
@@ -92,6 +109,26 @@ Utilizza una **Siamese Neural Network** (architettura SigNet) per confrontare du
 **Nota:** I pesi SigNet pre-addestrati (`models/signet.pth`) sono stati addestrati sul dataset di firme **GPDS**. I campioni demo provengono dal database **CEDAR** (`data/samples/genuine_N_M.png` / `forged_N_M.png`) e sono stati pre-selezionati affinché il modello rilevi correttamente la contraffazione.
 
 **Riferimento:** [luizgh/sigver](https://github.com/luizgh/sigver) — implementazione SigNet e pesi pre-addestrati.
+
+### Generalizzazione a firmatari non presenti nel training set
+
+SigNet utilizza il **metric learning** (rete siamese con contrastive loss), non un classificatore tradizionale. Questa è una distinzione architetturale fondamentale:
+
+- Un **classificatore** impara "chi è la persona X" — non può generalizzare a identità mai viste.
+- Un **modello siamese/metrico** impara "queste due firme provengono dalla stessa mano?" — la domanda è indipendente dall'identità e generalizza a qualsiasi firmatario, inclusi quelli mai visti durante il training.
+
+In pratica, SigNet può essere applicata a **qualsiasi coppia di firme**, indipendentemente dal fatto che il firmatario sia presente in GPDS o CEDAR.
+
+**Limitazioni note:**
+
+| Limitazione | Dettaglio |
+|---|---|
+| Bias culturale/stilistico | GPDS contiene principalmente firme brasiliane/portoghesi; firme italiane o non latine possono uscire dalla distribuzione di training |
+| Calibrazione della soglia | La soglia 0.35 (distanza coseno) è ottimizzata su CEDAR; per firmatari con stile insolitamente compatto o elaborato potrebbe richiedere aggiustamenti |
+| Tipo di falsificazione | Addestrato su *skilled forgeries* (il falsificatore ha praticato la firma); le performance su falsificazioni rozze sono generalmente migliori, su quelle professionali comparabili a un esperto umano |
+| Qualità dell'immagine | Le performance degradano con foto di documenti su carta colorata, piegata o con timbri sovrapposti |
+
+**Indicazione pratica:** Usare SigNet come **strumento di screening di primo livello**. Non è certificato per testimonianza forense legale autonoma; i risultati devono sempre essere revisionati da un esaminatore qualificato.
 
 ---
 
