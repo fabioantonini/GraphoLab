@@ -1742,6 +1742,52 @@ def _rag_load_docs():
     print(f"[RAG] Embedding done: {embedded}/{len(_rag_chunks)} chunks indexed")
 
 
+def rag_add_docs(files) -> str:
+    """Index uploaded PDF/DOCX files and add them to the live knowledge base."""
+    if not files:
+        return "Nessun file caricato."
+    try:
+        _requests.get(f"{OLLAMA_URL}/api/tags", timeout=3)
+    except Exception:
+        return (
+            "❌ Ollama non raggiungibile — i documenti non possono essere indicizzati.\n"
+            "Avvia `ollama serve` e ricarica."
+        )
+    lines = []
+    for f in files:
+        path = Path(f.name)
+        suffix = path.suffix.lower()
+        try:
+            if suffix == ".pdf":
+                text = _extract_pdf_text(path)
+            elif suffix in (".docx", ".doc"):
+                import docx as _docx
+                doc = _docx.Document(str(path))
+                text = "\n".join(p.text for p in doc.paragraphs)
+            else:
+                lines.append(f"⚠️ `{path.name}` — formato non supportato (solo PDF/DOCX).")
+                continue
+        except Exception as e:
+            lines.append(f"❌ `{path.name}` — errore: {e}")
+            continue
+
+        if not text.strip():
+            lines.append(f"⚠️ `{path.name}` — nessun testo estratto.")
+            continue
+
+        chunks = _chunk_text(text, path.name)
+        embedded = 0
+        for chunk in chunks:
+            emb = _ollama_embed(chunk["text"])
+            if emb is not None:
+                chunk["emb"] = emb
+                embedded += 1
+        _rag_chunks.extend(chunks)
+        lines.append(f"✅ `{path.name}` — {len(chunks)} chunk, {embedded} indicizzati.")
+
+    return "\n".join(lines)
+
+
 def rag_query(question: str) -> str:
     if not question or not question.strip():
         return ""
@@ -1799,10 +1845,26 @@ with gr.Blocks() as rag_tab:
         "## Consulente Forense IA\n"
         "Fai domande sulla grafologia forense. Il sistema recupera gli estratti più "
         "rilevanti dalla knowledge base e genera una risposta in italiano con "
-        "**Llama 3.2 via Ollama** (locale, nessun dato inviato online).\n\n"
-        "Per arricchire la knowledge base aggiungi file PDF o DOCX in `data/knowledge/` "
-        "e riavvia l'app. I PDF scansionati vengono trascritti automaticamente con OCR."
+        "**Llama 3.2 via Ollama** (locale, nessun dato inviato online)."
     )
+
+    with gr.Accordion("📂 Aggiungi documenti alla knowledge base", open=False):
+        gr.Markdown(
+            "Carica uno o più file PDF o DOCX per arricchire la knowledge base. "
+            "I documenti vengono indicizzati immediatamente e restano disponibili "
+            "per tutta la sessione.\n\n"
+            "I PDF scansionati vengono trascritti automaticamente con OCR.\n\n"
+            "*In alternativa, copia i file in `data/knowledge/` per caricarli automaticamente all'avvio.*"
+        )
+        rag_upload = gr.File(
+            label="Documenti (PDF o DOCX)",
+            file_count="multiple",
+            file_types=[".pdf", ".docx", ".doc"],
+        )
+        rag_upload_btn = gr.Button("Indicizza documenti", variant="secondary")
+        rag_upload_status = gr.Markdown(label="Esito indicizzazione")
+        rag_upload_btn.click(rag_add_docs, inputs=rag_upload, outputs=rag_upload_status)
+
     rag_in = gr.Textbox(
         label="Domanda",
         placeholder="Es: Come si valuta l'inclinazione della scrittura?",
