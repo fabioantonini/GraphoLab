@@ -37,3 +37,8 @@ easyocr>=1.7.0
 
 # Date parsing (multilingual, used in Datazione Documenti tab)
 dateparser>=1.1
+
+# RAG / knowledge base (Consulente Forense IA tab)
+pypdf>=3.0          # text extraction from digital PDFs
+pymupdf>=1.23       # render scanned PDF pages as images (for OCR fallback)
+python-docx>=0.8    # read DOCX files

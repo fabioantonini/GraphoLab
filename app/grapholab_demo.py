@@ -23,6 +23,7 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 import io
+import requests as _requests
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -70,6 +71,13 @@ _writer_X_scaled = None       # scaled training features for open-set distance c
 _writer_dist_threshold = None  # auto-calibrated rejection threshold
 import threading as _threading
 _writer_lock = _threading.Lock()
+
+# ── RAG / Ollama ──────────────────────────────────────────────────────────────
+OLLAMA_URL = "http://localhost:11434"
+OLLAMA_MODEL = "llama3.2"
+_rag_chunks: list = []   # [{"text": str, "source": str, "emb": np.ndarray}]
+_rag_ready = False
+_rag_lock = _threading.Lock()
 
 
 def get_trocr():
@@ -1515,13 +1523,313 @@ dating_tab = gr.Interface(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Tab 9 — Consulente Forense IA (RAG + Ollama)
+# ──────────────────────────────────────────────────────────────────────────────
+
+_RAG_SYNTHETIC_DOCS = [
+    (
+        "Analisi della pressione",
+        "La pressione grafica indica la forza con cui la penna o la matita viene premuta sul foglio. "
+        "Una pressione forte (tratti profondi, rilevabili anche sul retro del foglio) è associata a "
+        "carattere deciso, vitalità e a volte aggressività. Una pressione leggera (tratti quasi "
+        "impercettibili) può indicare sensibilità, adattabilità o, in contesti patologici, stanchezza "
+        "e astenia. La pressione irregolare — alternanza di tratti forti e deboli nello stesso scritto — "
+        "può segnalare instabilità emotiva, stati di ansia o condizioni neurologiche. In grafologia "
+        "forense la pressione è fondamentale per distinguere scritture apposte in condizioni normali "
+        "da quelle prodotte sotto costrizione fisica o psicologica.",
+    ),
+    (
+        "Inclinazione del tratto",
+        "L'inclinazione della scrittura descrive l'angolo dei tratti verticali delle lettere rispetto "
+        "alla riga di base. Una scrittura verticale (0°) indica equilibrio e obiettività. "
+        "L'inclinazione a destra (>15°) è associata a estroversia, impulsività e orientamento verso "
+        "il futuro. L'inclinazione a sinistra (<−10°) può indicare introversione, tendenza al ripiegamento "
+        "su se stessi o, in contesti forensi, un tentativo di camuffare la propria calligrafia. "
+        "L'inclinazione variabile (misto destra/sinistra nello stesso testo) è indicatore di "
+        "instabilità emotiva. La misurazione forense dell'inclinazione avviene tramite analisi "
+        "angolare dei tratti ascendenti (h, l, b, f) e discendenti (g, p, q).",
+    ),
+    (
+        "Spaziatura grafica",
+        "La spaziatura riguarda la distanza tra lettere, parole e righe. Spaziatura ampia tra le parole "
+        "indica bisogno di spazio personale, pensiero indipendente e, talvolta, solitudine. "
+        "Spaziatura ridotta (parole quasi attaccate) è correlata a socievolezza eccessiva, difficoltà "
+        "nei confini relazionali e, in casi estremi, pensiero confusionario. La spaziatura irregolare — "
+        "alternanza di parole distanti e ravvicinate — è un indicatore di disorganizzazione cognitiva "
+        "o di scrittura non spontanea (es. copiatura o dettatura lenta). In perizie forensi, "
+        "la spaziatura viene misurata in millimetri su campioni standardizzati.",
+    ),
+    (
+        "Margini e layout",
+        "I margini del foglio riflettono il rapporto dello scrittore con l'ambiente e il contesto "
+        "sociale. Un margine sinistro ampio e costante indica rispetto delle regole e pianificazione. "
+        "Un margine sinistro che si allarga progressivamente (testo che 'scivola' verso destra) "
+        "suggerisce entusiasmo crescente o impulsività. Margine destro ampio è associato a prudenza, "
+        "timore del futuro e riservatezza. L'assenza di margini (testo che occupa tutto il foglio) "
+        "indica esuberanza comunicativa o senso di urgenza. In perizia, il margine aiuta a "
+        "distinguere scritti autentici da trascrizioni o copie, poiché l'autore mantiene "
+        "inconsciamente le proprie abitudini spaziali.",
+    ),
+    (
+        "Firme autentiche",
+        "Una firma autentica possiede caratteristiche di naturalezza e fluidità del movimento. "
+        "I tratti sono continui, con accelerazione e decelerazione tipiche del gesto automatizzato. "
+        "La pressione varia in modo coerente con il ritmo del tratto. I legamenti tra le lettere "
+        "sono coerenti con il corpus grafico dello scrittore. La firma autentica presenta micro-tremori "
+        "naturali (diversi dai tremori patologici) e piccole variazioni tra esecuzioni successive, "
+        "mai perfettamente identiche. In perizia calligrafica, si confrontano almeno 10-15 firme "
+        "autentiche per stabilire la 'gamma di variazione naturale' prima di esaminare la firma contestata.",
+    ),
+    (
+        "Firme false",
+        "Le firme contraffatte si distinguono per diversi indicatori: velocità di esecuzione "
+        "innaturalmente lenta (visibile nei 'tocchi' del pennino e nelle esitazioni), tremori "
+        "artificiali (regolari, non spontanei), ritocchi e correzioni del tratto, interruzioni "
+        "anomale del gesto. La falsificazione per imitazione diretta (calco o copia visiva) produce "
+        "una firma con aspetto simile all'originale ma con movimenti invertiti rispetto alla direzione "
+        "naturale. Il falsario tende a concentrarsi sulla forma complessiva trascurando i dettagli "
+        "minuti (proporzioni tra lettere, angolo di attacco del tratto, pressione). "
+        "L'analisi forense utilizza ingrandimenti 10x-40x e, nei casi dubbi, grafometria digitale.",
+    ),
+    (
+        "Velocità e ritmo",
+        "La velocità di scrittura si manifesta nella forma delle lettere (semplificazione dei tratti "
+        "in scrittura rapida), nell'inclinazione (più marcata ad alta velocità), nelle legature "
+        "(frequenti in scrittura veloce, assenti in quella lenta). Il ritmo è la regolarità con cui "
+        "si alternano tensione e distensione nel movimento grafico. Un ritmo regolare indica "
+        "equilibrio psicofisico. Un ritmo aritmico (alternanza caotica di tratti tesi e distesi) "
+        "può segnalare stati emotivi alterati, patologie neurologiche o scrittura non spontanea. "
+        "In perizia forense la velocità è cruciale: una firma depositata 'lentamente' da una persona "
+        "abitualmente veloce è un forte indicatore di contraffazione.",
+    ),
+    (
+        "Datazione documenti",
+        "La datazione grafica di un documento si basa su elementi intrinseci ed estrinseci. "
+        "Elementi intrinseci: evoluzione dello stile grafico dell'autore nel tempo (campioni noti "
+        "datati permettono di costruire una 'curva di evoluzione'), deterioramento della calligrafia "
+        "legato all'età, variazioni nelle abitudini punteggiatura e abbreviazioni. "
+        "Elementi estrinseci: tipo di inchiostro (analisi spettroscopica), supporto cartaceo "
+        "(filigrana, composizione chimica), strumento di scrittura (biro, stilografica, matita). "
+        "L'analisi dell'inchiostro mediante cromatografia liquida può stabilire se l'inchiostro "
+        "è compatibile con la data dichiarata. In perizia, la datazione grafica va sempre "
+        "abbinata ad analisi chimiche per raggiungere un grado di certezza forense.",
+    ),
+]
+
+_RAG_KNOWLEDGE_DIR = ROOT / "data" / "knowledge"
+
+
+def _chunk_text(text: str, source: str, size: int = 500, overlap: int = 50) -> list:
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = min(start + size, len(text))
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append({"text": chunk, "source": source, "emb": None})
+        start += size - overlap
+    return chunks
+
+
+def _ollama_embed(text: str):
+    try:
+        r = _requests.post(
+            f"{OLLAMA_URL}/api/embeddings",
+            json={"model": OLLAMA_MODEL, "prompt": text},
+            timeout=30,
+        )
+        return np.array(r.json()["embedding"], dtype=np.float32)
+    except Exception:
+        return None
+
+
+def _cosine_top_k(query_emb: np.ndarray, k: int = 3) -> list:
+    if not _rag_chunks:
+        return []
+    embs = np.stack([c["emb"] for c in _rag_chunks if c["emb"] is not None])
+    valid = [c for c in _rag_chunks if c["emb"] is not None]
+    if len(valid) == 0:
+        return []
+    q = query_emb / (np.linalg.norm(query_emb) + 1e-9)
+    norms = np.linalg.norm(embs, axis=1, keepdims=True) + 1e-9
+    scores = (embs / norms) @ q
+    idxs = np.argsort(scores)[::-1][:k]
+    return [(float(scores[i]), valid[i]) for i in idxs]
+
+
+def _extract_pdf_text(path: Path) -> str:
+    """Extract text from a PDF, falling back to EasyOCR for scanned pages."""
+    full_text = []
+    try:
+        import pypdf
+    except ImportError:
+        print(f"[RAG] pypdf not installed — skipping {path.name}")
+        return ""
+    try:
+        reader = pypdf.PdfReader(str(path))
+        for page_num, page in enumerate(reader.pages):
+            page_text = page.extract_text() or ""
+            if len(page_text.strip()) >= 50:
+                full_text.append(page_text)
+            else:
+                # Scanned page — render to image and OCR
+                try:
+                    import fitz  # pymupdf
+                    doc = fitz.open(str(path))
+                    fitz_page = doc[page_num]
+                    mat = fitz.Matrix(150 / 72, 150 / 72)  # 150 DPI
+                    pix = fitz_page.get_pixmap(matrix=mat)
+                    img_arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+                        pix.height, pix.width, pix.n
+                    )
+                    if pix.n == 4:
+                        img_arr = img_arr[:, :, :3]
+                    ocr_result = get_easyocr().readtext(img_arr, detail=0, paragraph=True)
+                    full_text.append(" ".join(ocr_result))
+                    doc.close()
+                except ImportError:
+                    print(f"[RAG] pymupdf not installed — cannot OCR scanned page {page_num+1} of {path.name}")
+                except Exception as e:
+                    print(f"[RAG] OCR error on page {page_num+1} of {path.name}: {e}")
+    except Exception as e:
+        print(f"[RAG] Error reading PDF {path.name}: {e}")
+    return "\n".join(full_text)
+
+
+def _rag_load_docs():
+    global _rag_chunks, _rag_ready
+    with _rag_lock:
+        chunks: list = []
+
+        # Synthetic built-in knowledge
+        for source, text in _RAG_SYNTHETIC_DOCS:
+            chunks.extend(_chunk_text(text, source))
+
+        # User documents from data/knowledge/
+        if _RAG_KNOWLEDGE_DIR.exists():
+            for f in sorted(_RAG_KNOWLEDGE_DIR.iterdir()):
+                try:
+                    if f.suffix.lower() == ".pdf":
+                        text = _extract_pdf_text(f)
+                    elif f.suffix.lower() in (".docx", ".doc"):
+                        try:
+                            import docx as _docx
+                            doc = _docx.Document(str(f))
+                            text = "\n".join(p.text for p in doc.paragraphs)
+                        except ImportError:
+                            print(f"[RAG] python-docx not installed — skipping {f.name}")
+                            continue
+                    else:
+                        continue
+                    if text.strip():
+                        chunks.extend(_chunk_text(text, f.name))
+                        print(f"[RAG] Loaded {f.name} ({len(text)} chars)")
+                except Exception as e:
+                    print(f"[RAG] Error loading {f.name}: {e}")
+
+        # Chunks loaded — mark ready so queries can start immediately
+        _rag_chunks = chunks
+        _rag_ready = True
+        print(f"[RAG] Chunks loaded: {len(chunks)} — starting embedding…")
+
+    # Embed outside the lock so queries can run concurrently
+    embedded = 0
+    for chunk in _rag_chunks:
+        emb = _ollama_embed(chunk["text"])
+        if emb is not None:
+            chunk["emb"] = emb
+            embedded += 1
+    print(f"[RAG] Embedding done: {embedded}/{len(_rag_chunks)} chunks indexed")
+
+
+def rag_query(question: str) -> str:
+    if not question or not question.strip():
+        return ""
+    # Verifica Ollama raggiungibile
+    try:
+        _requests.get(f"{OLLAMA_URL}/api/tags", timeout=3)
+    except Exception:
+        return (
+            "❌ **Ollama non raggiungibile.**\n\n"
+            "Avvia il server con:\n```\nollama serve\n```\n"
+            "e assicurati che il modello sia scaricato:\n"
+            "```\nollama pull llama3.2\n```"
+        )
+    if not _rag_ready:
+        return "⏳ Indice della knowledge base in costruzione, riprovare tra qualche secondo…"
+
+    embedded_chunks = [c for c in _rag_chunks if c["emb"] is not None]
+    if not embedded_chunks:
+        total = len(_rag_chunks)
+        return (
+            f"⏳ Embedding in corso (0/{total} chunk pronti). "
+            "Riprovare tra qualche secondo — l'indicizzazione procede in background."
+        )
+
+    q_emb = _ollama_embed(question)
+    if q_emb is None:
+        return "❌ Impossibile generare l'embedding della domanda. Ollama è in esecuzione?"
+
+    results = _cosine_top_k(q_emb, k=3)
+    context = "\n\n".join(
+        f"[{c['source']}]\n{c['text']}" for _, c in results
+    )
+    prompt = (
+        "Sei un esperto di grafologia forense. Rispondi in italiano, in modo preciso e "
+        "conciso, basandoti ESCLUSIVAMENTE sui seguenti estratti.\n\n"
+        f"{context}\n\n"
+        f"Domanda: {question}\n\nRisposta:"
+    )
+    try:
+        r = _requests.post(
+            f"{OLLAMA_URL}/api/generate",
+            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+            timeout=120,
+        )
+        answer = r.json().get("response", "").strip()
+    except Exception as e:
+        return f"❌ Errore nella generazione: {e}"
+
+    sources = list(dict.fromkeys(c["source"] for _, c in results))
+    return f"{answer}\n\n---\n*Fonti: {', '.join(sources)}*"
+
+
+with gr.Blocks() as rag_tab:
+    gr.Markdown(
+        "## Consulente Forense IA\n"
+        "Fai domande sulla grafologia forense. Il sistema recupera gli estratti più "
+        "rilevanti dalla knowledge base e genera una risposta in italiano con "
+        "**Llama 3.2 via Ollama** (locale, nessun dato inviato online).\n\n"
+        "Per arricchire la knowledge base aggiungi file PDF o DOCX in `data/knowledge/` "
+        "e riavvia l'app. I PDF scansionati vengono trascritti automaticamente con OCR."
+    )
+    rag_in = gr.Textbox(
+        label="Domanda",
+        placeholder="Es: Come si valuta l'inclinazione della scrittura?",
+        lines=2,
+    )
+    rag_btn = gr.Button("Chiedi", variant="primary")
+    rag_out = gr.Markdown(label="Risposta")
+    gr.Examples(
+        examples=[
+            ["Cosa indica una forte pressione nella scrittura?"],
+            ["Come si distingue una firma autentica da una contraffatta?"],
+            ["Quali parametri grafologici rilevano stress o malattia?"],
+            ["Come si data un documento manoscritto?"],
+        ],
+        inputs=rag_in,
+    )
+    rag_btn.click(rag_query, inputs=rag_in, outputs=rag_out)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Main App
 # ──────────────────────────────────────────────────────────────────────────────
 
 demo = gr.TabbedInterface(
     interface_list=[
         htr_tab, sig_verify_tab, sig_detect_tab,
-        ner_tab, writer_tab, grapho_tab, pipeline_tab, dating_tab,
+        ner_tab, writer_tab, grapho_tab, pipeline_tab, dating_tab, rag_tab,
     ],
     tab_names=[
         "OCR Manoscritto",
@@ -1532,6 +1840,7 @@ demo = gr.TabbedInterface(
         "Analisi Grafologica",
         "Pipeline Forense",
         "Datazione Documenti",
+        "Consulente Forense IA",
     ],
     title=(
         "GraphoLab — Intelligenza Artificiale in Grafologia Forense"
@@ -1539,6 +1848,8 @@ demo = gr.TabbedInterface(
            if os.environ.get("SPACE_ID") else "")
     ),
 )
+
+_threading.Thread(target=_rag_load_docs, daemon=True).start()
 
 if __name__ == "__main__":
     demo.launch(
