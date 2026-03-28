@@ -982,16 +982,19 @@ def grapho_analyse(image: np.ndarray) -> tuple[str, np.ndarray]:
     if image is None:
         return "Carica un'immagine di scrittura a mano.", image
 
+    # Cap to 800 px: adaptive threshold is O(pixels × blockSize), so keeping
+    # the image small is critical. Graphological metrics are scale-invariant.
+    h0, w0 = image.shape[:2]
+    if max(h0, w0) > 800:
+        sc = 800 / max(h0, w0)
+        image = cv2.resize(image, (int(w0 * sc), int(h0 * sc)), interpolation=cv2.INTER_AREA)
+
     gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY) if len(image.shape) == 3 else image
-    # Stretch contrast to 2–98th percentile before Otsu so that dark photo
-    # backgrounds are lifted and not mistaken for ink.
-    p_lo, p_hi = np.percentile(gray, [2, 98])
-    if p_hi > p_lo:
-        gray = np.clip((gray.astype(np.float32) - p_lo) / (p_hi - p_lo) * 255,
-                       0, 255).astype(np.uint8)
-    _, binary = cv2.threshold(
-        cv2.GaussianBlur(gray, (3, 3), 0), 0, 255,
-        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU,
+    # Adaptive threshold works locally: ignores the global dark background of
+    # phone photos that fools global Otsu into treating borders as ink.
+    binary = cv2.adaptiveThreshold(
+        cv2.GaussianBlur(gray, (5, 5), 0), 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 31, 10,
     )
 
     # Slant
