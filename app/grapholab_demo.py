@@ -1458,8 +1458,7 @@ demo = gr.TabbedInterface(
         "Pipeline Forense",
         "Datazione Documenti",
     ],
-    title="GraphoLab — Intelligenza Artificiale in Grafologia Forense",
-    description="⚠️ Running on CPU — the first inference per tab may take 30–60 s while the model loads into memory.",
+    title="GraphoLab — Intelligenza Artificiale in Grafologia Forense\n⚠️ Su HF Spaces gira su CPU: la prima inferenza per tab può richiedere 30–60 s.",
 )
 
 if __name__ == "__main__":
