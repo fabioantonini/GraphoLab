@@ -1533,7 +1533,11 @@ demo = gr.TabbedInterface(
         "Pipeline Forense",
         "Datazione Documenti",
     ],
-    title="GraphoLab — Intelligenza Artificiale in Grafologia Forense\n⚠️ Su HF Spaces gira su CPU: la prima inferenza per tab può richiedere 30–60 s.",
+    title=(
+        "GraphoLab — Intelligenza Artificiale in Grafologia Forense"
+        + ("\n⚠️ Demo su CPU: la prima inferenza per tab può richiedere 30–60 s."
+           if os.environ.get("SPACE_ID") else "")
+    ),
 )
 
 if __name__ == "__main__":
