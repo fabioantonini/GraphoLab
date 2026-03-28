@@ -1331,8 +1331,12 @@ def extract_dates(text: str) -> list[tuple[str, _datetime]]:
     found: list[tuple[str, _datetime]] = []
 
     # L1 — regex
+    _BIRTH_KW = ("nata", "nato", "nascita", "nasc.", "nata il", "nato il")
     for m in _DATE_RE.finditer(text):
         raw = m.group(0).strip()
+        context_before = text[max(0, m.start() - 35) : m.start()].lower()
+        if any(kw in context_before for kw in _BIRTH_KW):
+            continue  # data di nascita — ignorala
         dt = _try_dateparser(raw)
         if dt:
             found.append((raw, dt))
@@ -1379,12 +1383,11 @@ def dating_rank(files: list) -> str:
         try:
             img = Image.open(path).convert("RGB")
             img_np = np.array(img)
-            processed = _preprocess_for_htr(img_np)
-            ocr_lines = reader.readtext(processed, detail=0, paragraph=True)
+            ocr_lines = reader.readtext(img_np, detail=0, paragraph=False)
             text = "\n".join(ocr_lines)
             dates = extract_dates(text)
             if dates:
-                raw, dt = dates[0]          # prima data plausibile
+                raw, dt = dates[-1]         # data più recente = data di redazione
                 rows.append((name, raw, dt))
             else:
                 rows.append((name, "—  data non trovata", None))
