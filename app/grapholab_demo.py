@@ -66,6 +66,8 @@ _yolo_model = None
 _ner_pipeline = None
 _writer_clf = None
 _writer_le = None
+import threading as _threading
+_writer_lock = _threading.Lock()
 
 
 def get_trocr():
@@ -815,12 +817,19 @@ def _load_real_writer_samples() -> tuple[list[np.ndarray], list[str]] | None:
 
 
 def _get_writer_model():
-    """Return (Pipeline, LabelEncoder), training lazily on first call."""
-    global _writer_clf, _writer_le
-    if _writer_clf is not None:
-        return _writer_clf, _writer_le
+    """Return (Pipeline, LabelEncoder), training lazily on first call.
 
-    print("Training writer identification model...")
+    Thread-safe: if the background pre-warm thread is still running when the
+    pipeline reaches step 4, this call blocks until training finishes rather
+    than spawning a duplicate training job.
+    """
+    global _writer_clf, _writer_le
+    if _writer_clf is not None:          # fast path — no lock needed
+        return _writer_clf, _writer_le
+    with _writer_lock:                   # only one thread trains at a time
+        if _writer_clf is not None:      # re-check after acquiring lock
+            return _writer_clf, _writer_le
+        print("Training writer identification model...")
 
     real = _load_real_writer_samples()
     if real is not None:
@@ -865,6 +874,9 @@ def _ensure_writer_examples() -> list[str]:
 
 
 _writer_example_paths = _ensure_writer_examples()
+
+# Pre-warm writer model in background so step 4 of pipeline is instant
+_threading.Thread(target=_get_writer_model, daemon=True).start()
 
 
 def writer_identify(image: np.ndarray) -> tuple[str, np.ndarray]:
@@ -971,9 +983,15 @@ def grapho_analyse(image: np.ndarray) -> tuple[str, np.ndarray]:
         return "Carica un'immagine di scrittura a mano.", image
 
     gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY) if len(image.shape) == 3 else image
+    # Stretch contrast to 2–98th percentile before Otsu so that dark photo
+    # backgrounds are lifted and not mistaken for ink.
+    p_lo, p_hi = np.percentile(gray, [2, 98])
+    if p_hi > p_lo:
+        gray = np.clip((gray.astype(np.float32) - p_lo) / (p_hi - p_lo) * 255,
+                       0, 255).astype(np.uint8)
     _, binary = cv2.threshold(
         cv2.GaussianBlur(gray, (3, 3), 0), 0, 255,
-        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU,
     )
 
     # Slant
@@ -1133,41 +1151,59 @@ def _detect_and_crop(
 def run_pipeline(
     doc_image: np.ndarray,
     ref_sig: np.ndarray | None,
-) -> tuple:
-    """Orchestrate all 6 AI tools in sequence on a single document."""
-    _NONE = gr.update(visible=True)  # sentinel — results column becomes visible
+    progress: gr.Progress = gr.Progress(track_tqdm=False),
+):
+    """Orchestrate all 6 AI tools in sequence.
+
+    Generator: yields partial results after each step so the UI updates live.
+    Output order: s1_img, s1_txt, s2_txt, s3_hl, s3_md,
+                  s4_md, s4_img, s5_md, s5_img,
+                  s6_txt, s6_img, final_md, pipe_results
+    """
+    _ = gr.update()   # no-op: leave output unchanged
 
     if doc_image is None:
         msg = "Carica il documento da analizzare."
-        return (doc_image, msg, msg, [], msg, msg, None, msg, doc_image, msg, None, msg, gr.update(visible=False))
+        yield (doc_image, msg, msg, [], msg, msg, None, msg, doc_image, msg, None, msg,
+               gr.update(visible=False))
+        return
 
     # ── Step 1: Signature Detection ───────────────────────────────────────────
+    progress(0.05, desc="Step 1/6 — Rilevamento firma…")
     step1_img, sig_crop, step1_summary = _detect_and_crop(doc_image)
+    yield (step1_img, step1_summary, _, _, _, _, _, _, _, _, _, _, gr.update(visible=True))
 
     # ── Step 2: HTR ───────────────────────────────────────────────────────────
+    progress(0.20, desc="Step 2/6 — Trascrizione HTR…")
     step2_text = htr_transcribe(doc_image)
+    yield (_, _, step2_text, _, _, _, _, _, _, _, _, _, _)
 
     # ── Step 3: NER ───────────────────────────────────────────────────────────
+    progress(0.45, desc="Step 3/6 — Riconoscimento entità…")
     text_for_ner = step2_text if step2_text and step2_text.strip() else ""
     if text_for_ner:
         step3_hl, step3_summary = ner_extract(text_for_ner)
     else:
         step3_hl, step3_summary = [], "Nessun testo trascritto disponibile per il NER."
+    yield (_, _, _, step3_hl, step3_summary, _, _, _, _, _, _, _, _)
 
     # ── Step 4: Writer Identification ─────────────────────────────────────────
+    progress(0.60, desc="Step 4/6 — Identificazione scrittore…")
     step4_report, step4_chart = writer_identify(doc_image)
+    yield (_, _, _, _, _, step4_report, step4_chart, _, _, _, _, _, _)
 
     # ── Step 5: Graphological Analysis ────────────────────────────────────────
+    progress(0.75, desc="Step 5/6 — Analisi grafologica…")
     step5_report, step5_vis = grapho_analyse(doc_image)
+    yield (_, _, _, _, _, _, _, step5_report, step5_vis, _, _, _, _)
 
     # ── Step 6: Signature Verification ────────────────────────────────────────
+    progress(0.88, desc="Step 6/6 — Verifica firma…")
     if ref_sig is not None:
         query_for_verify = sig_crop if sig_crop is not None else doc_image
         step6_report, step6_chart = sig_verify(ref_sig, None, query_for_verify)
-        step6_note = ""
         if sig_crop is None:
-            step6_note = "\n\n⚠️ Nessuna firma estratta dal documento — confronto eseguito sull'immagine intera."
-        step6_report = step6_report + step6_note
+            step6_report += "\n\n⚠️ Nessuna firma estratta — confronto eseguito sull'immagine intera."
     else:
         step6_report = (
             "Firma di riferimento non fornita.\n\n"
@@ -1175,6 +1211,7 @@ def run_pipeline(
             "nel campo 'Firma di riferimento' sopra."
         )
         step6_chart = None
+    yield (_, _, _, _, _, _, _, _, _, step6_report, step6_chart, _, _)
 
     # ── Referto finale ────────────────────────────────────────────────────────
     final_report = (
@@ -1191,17 +1228,7 @@ def run_pipeline(
         "Tutti i risultati hanno carattere indicativo e devono essere valutati "
         "da un perito calligrafo qualificato.*"
     )
-
-    return (
-        step1_img, step1_summary,
-        step2_text,
-        step3_hl, step3_summary,
-        step4_report, step4_chart,
-        step5_report, step5_vis,
-        step6_report, step6_chart,
-        final_report,
-        gr.update(visible=True),
-    )
+    yield (_, _, _, _, _, _, _, _, _, _, _, final_report, _)
 
 
 with gr.Blocks() as pipeline_tab:
