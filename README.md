@@ -1,3 +1,16 @@
+---
+title: GraphoLab — AI for Forensic Graphology
+emoji: 🔬
+colorFrom: blue
+colorTo: indigo
+sdk: gradio
+sdk_version: "4.44.0"
+app_file: app/grapholab_demo.py
+pinned: false
+license: apache-2.0
+short_description: AI-powered forensic graphology demo (HTR, signatures, NER)
+---
+
 # GraphoLab — Forensic Graphology Laboratory
 
 A collection of AI-powered demo labs showing how machine learning and computer vision can be applied to **forensic graphology**: the scientific examination of handwriting and signatures for legal purposes.
