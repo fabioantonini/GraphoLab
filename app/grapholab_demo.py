@@ -1220,52 +1220,52 @@ def run_pipeline(
     ref_sig: np.ndarray | None,
     progress: gr.Progress = gr.Progress(track_tqdm=False),
 ):
-    """Orchestrate all 6 AI tools in sequence.
+    """Orchestrate all 7 AI tools in sequence.
 
     Generator: yields partial results after each step so the UI updates live.
     Output order: s1_img, s1_txt, s2_txt, s3_hl, s3_md,
                   s4_md, s4_img, s5_md, s5_img,
-                  s6_txt, s6_img, final_md, pipe_results
+                  s6_txt, s6_img, final_md, pipe_results, llm_md
     """
     _ = gr.update()   # no-op: leave output unchanged
 
     if doc_image is None:
         msg = "Carica il documento da analizzare."
         yield (doc_image, msg, msg, [], msg, msg, None, msg, doc_image, msg, None, msg,
-               gr.update(visible=False))
+               gr.update(visible=False), _)
         return
 
     # ── Step 1: Signature Detection ───────────────────────────────────────────
-    progress(0.05, desc="Step 1/6 — Rilevamento firma…")
+    progress(0.05, desc="Step 1/7 — Rilevamento firma…")
     step1_img, sig_crop, step1_summary = _detect_and_crop(doc_image)
-    yield (step1_img, step1_summary, _, _, _, _, _, _, _, _, _, _, gr.update(visible=True))
+    yield (step1_img, step1_summary, _, _, _, _, _, _, _, _, _, _, gr.update(visible=True), _)
 
     # ── Step 2: HTR ───────────────────────────────────────────────────────────
-    progress(0.20, desc="Step 2/6 — Trascrizione HTR…")
+    progress(0.20, desc="Step 2/7 — Trascrizione HTR…")
     step2_text = htr_transcribe(doc_image)
-    yield (_, _, step2_text, _, _, _, _, _, _, _, _, _, _)
+    yield (_, _, step2_text, _, _, _, _, _, _, _, _, _, _, _)
 
     # ── Step 3: NER ───────────────────────────────────────────────────────────
-    progress(0.45, desc="Step 3/6 — Riconoscimento entità…")
+    progress(0.45, desc="Step 3/7 — Riconoscimento entità…")
     text_for_ner = step2_text if step2_text and step2_text.strip() else ""
     if text_for_ner:
         step3_hl, step3_summary = ner_extract(text_for_ner)
     else:
         step3_hl, step3_summary = [], "Nessun testo trascritto disponibile per il NER."
-    yield (_, _, _, step3_hl, step3_summary, _, _, _, _, _, _, _, _)
+    yield (_, _, _, step3_hl, step3_summary, _, _, _, _, _, _, _, _, _)
 
     # ── Step 4: Writer Identification ─────────────────────────────────────────
-    progress(0.60, desc="Step 4/6 — Identificazione scrittore…")
+    progress(0.60, desc="Step 4/7 — Identificazione scrittore…")
     step4_report, step4_chart = writer_identify(doc_image)
-    yield (_, _, _, _, _, step4_report, step4_chart, _, _, _, _, _, _)
+    yield (_, _, _, _, _, step4_report, step4_chart, _, _, _, _, _, _, _)
 
     # ── Step 5: Graphological Analysis ────────────────────────────────────────
-    progress(0.75, desc="Step 5/6 — Analisi grafologica…")
+    progress(0.75, desc="Step 5/7 — Analisi grafologica…")
     step5_report, step5_vis = grapho_analyse(doc_image)
-    yield (_, _, _, _, _, _, _, step5_report, step5_vis, _, _, _, _)
+    yield (_, _, _, _, _, _, _, step5_report, step5_vis, _, _, _, _, _)
 
     # ── Step 6: Signature Verification ────────────────────────────────────────
-    progress(0.88, desc="Step 6/6 — Verifica firma…")
+    progress(0.88, desc="Step 6/7 — Verifica firma…")
     if ref_sig is not None:
         query_for_verify = sig_crop if sig_crop is not None else doc_image
         step6_report, step6_chart = sig_verify(ref_sig, None, query_for_verify)
@@ -1278,7 +1278,7 @@ def run_pipeline(
             "nel campo 'Firma di riferimento' sopra."
         )
         step6_chart = None
-    yield (_, _, _, _, _, _, _, _, _, step6_report, step6_chart, _, _)
+    yield (_, _, _, _, _, _, _, _, _, step6_report, step6_chart, _, _, _)
 
     # ── Referto finale ────────────────────────────────────────────────────────
     final_report = (
@@ -1295,7 +1295,15 @@ def run_pipeline(
         "Tutti i risultati hanno carattere indicativo e devono essere valutati "
         "da un perito calligrafo qualificato.*"
     )
-    yield (_, _, _, _, _, _, _, _, _, _, _, final_report, _)
+    yield (_, _, _, _, _, _, _, _, _, _, _, final_report, _, _)
+
+    # ── Step 7: Sintesi LLM ───────────────────────────────────────────────────
+    progress(0.92, desc="Step 7/7 — Sintesi LLM…")
+    llm_report = _pipeline_llm_synthesis(
+        step1_summary, step2_text, step3_summary,
+        step4_report, step5_report, step6_report,
+    )
+    yield (_, _, _, _, _, _, _, _, _, _, _, _, _, llm_report)
 
 
 with gr.Blocks() as pipeline_tab:
@@ -1312,6 +1320,7 @@ with gr.Blocks() as pipeline_tab:
         "| 4 | Identificazione Scrittore | Documento |\n"
         "| 5 | Analisi Grafologica | Documento |\n"
         "| 6 | Verifica Firma (SigNet) | Firma rif. + crop da Step 1 |\n"
+        "| 7 | Sintesi LLM (Ollama) | Output Step 1–6 |\n"
     )
 
     with gr.Row():
@@ -1361,6 +1370,9 @@ with gr.Blocks() as pipeline_tab:
         gr.Markdown("---")
         out_final = gr.Markdown()
 
+        with gr.Accordion("Step 7 — Valutazione LLM (Ollama)", open=True):
+            out_llm = gr.Markdown(label="Referto sintetico LLM")
+
     pipe_btn.click(
         fn=run_pipeline,
         inputs=[pipe_doc, pipe_ref],
@@ -1373,6 +1385,7 @@ with gr.Blocks() as pipeline_tab:
             out_s6_txt, out_s6_img,
             out_final,
             pipe_results,
+            out_llm,
         ],
     )
 
@@ -1956,6 +1969,45 @@ def _stream_ollama(prompt: str):
                 data = _json.loads(line)
                 if not data.get("done"):
                     yield data.get("response", "")
+
+
+def _pipeline_llm_synthesis(
+    step1_summary: str,
+    step2_text: str,
+    step3_summary: str,
+    step4_report: str,
+    step5_report: str,
+    step6_report: str,
+) -> str:
+    """Chiama Ollama per sintetizzare i risultati dei 6 step in un referto forense narrativo."""
+    try:
+        _requests.get(f"{OLLAMA_URL}/api/tags", timeout=3)
+    except Exception:
+        return (
+            "❌ **Ollama non raggiungibile.** Avvia il server con:\n"
+            "```\nollama serve\n```"
+        )
+    prompt = (
+        "Sei un perito calligrafo forense esperto. "
+        "Sulla base delle seguenti analisi tecniche su un documento, "
+        "fornisci in italiano una valutazione complessiva professionale: "
+        "evidenzia elementi di interesse forense, coerenze e incoerenze tra i risultati, "
+        "e suggerisci eventuali ulteriori verifiche.\n\n"
+        f"=== RILEVAMENTO FIRMA ===\n{step1_summary}\n\n"
+        f"=== TRASCRIZIONE HTR ===\n{step2_text}\n\n"
+        f"=== ENTITÀ RICONOSCIUTE (NER) ===\n{step3_summary}\n\n"
+        f"=== IDENTIFICAZIONE AUTORE ===\n{step4_report}\n\n"
+        f"=== ANALISI GRAFOLOGICA ===\n{step5_report}\n\n"
+        f"=== VERIFICA FIRMA ===\n{step6_report}\n\n"
+        "Valutazione forense integrata:"
+    )
+    result = ""
+    try:
+        for token in _stream_ollama(prompt):
+            result += token
+    except Exception as e:
+        return f"❌ Errore nella generazione LLM: {e}"
+    return result if result else "*(Nessuna risposta dal modello)*"
 
 
 def _rag_retrieve(question: str):
