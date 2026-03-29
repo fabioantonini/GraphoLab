@@ -13,8 +13,8 @@ opencv-python>=4.8.0
 # Object Detection (YOLOv8)
 ultralytics>=8.0.0
 
-# Interactive Demo
-gradio>=5.0.0
+# audioop backport for Python 3.13 (pydub dependency of gradio 4.x)
+audioop-lts; python_version >= "3.13"
 
 # Data / ML utilities
 scikit-learn>=1.3.0
