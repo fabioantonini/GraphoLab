@@ -291,7 +291,7 @@ pip install qwen_vl_utils accelerate
 
 **File:** `app/grapholab_demo.py`
 
-Un'applicazione Gradio multi-tab accessibile da browser (completamente in italiano) che aggrega tutte e sette le funzionalità AI:
+Un'applicazione Gradio multi-tab accessibile da browser (completamente in italiano) che aggrega nove funzionalità AI:
 
 | Tab | Funzionalità |
 |-----|-------------|
@@ -301,7 +301,9 @@ Un'applicazione Gradio multi-tab accessibile da browser (completamente in italia
 | Riconoscimento Entità | Inserisci testo → entità evidenziate + tabella riepilogativa |
 | Identificazione Scrittore | Carica un campione di scrittura → lista di autori candidati con punteggi di probabilità |
 | Analisi Grafologica | Carica testo manoscritto → dashboard di metriche visive |
-| Pipeline Forense | Carica documento (+ firma opzionale) → referto forense completo (tutti i 6 step) |
+| Perizia Forense Automatica | Carica documento (+ firma opzionale) → referto forense completo (7 step: rilevamento firma, HTR, NER, identificazione scrittore, grafologia, verifica firma, sintesi LLM via Ollama) |
+| Datazione Documenti | Carica più immagini di documenti → ordinamento cronologico per data estratta (EasyOCR + dateparser) |
+| Consulente Forense IA | Chatbot RAG: carica PDF/DOCX per arricchire la knowledge base, poi fai domande con risposta generata da un LLM Ollama locale |
 
 **Avvio in locale:**
 
