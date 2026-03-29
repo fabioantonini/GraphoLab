@@ -16,6 +16,10 @@ import sys
 import warnings
 from pathlib import Path
 
+# Prevent sklearn from probing polars (avoids circular import when polars is
+# installed but not fully initialized at thread startup time)
+os.environ.setdefault("SKLEARN_NO_POLARS", "1")
+
 warnings.filterwarnings("ignore")
 
 # Allow importing from the project root
@@ -70,14 +74,17 @@ _writer_le = None
 _writer_X_scaled = None       # scaled training features for open-set distance check
 _writer_dist_threshold = None  # auto-calibrated rejection threshold
 import threading as _threading
+import hashlib as _hashlib
 _writer_lock = _threading.Lock()
 
 # ── RAG / Ollama ──────────────────────────────────────────────────────────────
 OLLAMA_URL = "http://localhost:11434"
 OLLAMA_MODEL = "llama3.2"
 _rag_chunks: list = []   # [{"text": str, "source": str, "emb": np.ndarray}]
+_rag_indexed_files: set = set()  # filenames already indexed via upload
 _rag_ready = False
 _rag_lock = _threading.Lock()
+_RAG_CACHE_DIR = ROOT / "data" / "rag_cache"
 
 
 def get_trocr():
@@ -1657,6 +1664,56 @@ def _cosine_top_k(query_emb: np.ndarray, k: int = 3) -> list:
     return [(float(scores[i]), valid[i]) for i in idxs]
 
 
+def _rag_cache_path(filename: str, file_bytes: bytes) -> Path:
+    h = _hashlib.sha256(file_bytes).hexdigest()[:8]
+    stem = Path(filename).stem[:40]
+    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in stem)
+    return _RAG_CACHE_DIR / f"{safe}_{h}.npz"
+
+
+def _rag_cache_save(cache_path: Path, chunks: list, filename: str) -> None:
+    _RAG_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    good = [c for c in chunks if c["emb"] is not None]
+    if not good:
+        return
+    texts = np.array([c["text"] for c in good], dtype=object)
+    sources = np.array([c["source"] for c in good], dtype=object)
+    embs = np.stack([c["emb"] for c in good])
+    np.savez_compressed(
+        str(cache_path),
+        texts=texts,
+        sources=sources,
+        embs=embs,
+        filename=np.array(filename, dtype=object),
+    )
+
+
+def _rag_cache_load(cache_path: Path) -> tuple:
+    """Returns (chunks, original_filename)."""
+    data = np.load(str(cache_path), allow_pickle=True)
+    filename = str(data["filename"])
+    chunks = [
+        {"text": str(t), "source": str(s), "emb": e}
+        for t, s, e in zip(data["texts"], data["sources"], data["embs"])
+    ]
+    return chunks, filename
+
+
+def _rag_doc_list() -> list:
+    """Return rows [[filename, chunk_count]] for gr.Dataframe (user docs only)."""
+    synthetic_sources = {s for s, _ in _RAG_SYNTHETIC_DOCS}
+    counts: dict = {}
+    for c in _rag_chunks:
+        src = c["source"]
+        if src not in synthetic_sources:
+            counts[src] = counts.get(src, 0) + 1
+    return [[name, cnt] for name, cnt in sorted(counts.items())]
+
+
+def _rag_doc_choices() -> list:
+    return [row[0] for row in _rag_doc_list()]
+
+
 def _extract_pdf_text(path: Path) -> str:
     """Extract text from a PDF, falling back to EasyOCR for scanned pages."""
     full_text = []
@@ -1697,73 +1754,83 @@ def _extract_pdf_text(path: Path) -> str:
 
 
 def _rag_load_docs():
-    global _rag_chunks, _rag_ready
+    global _rag_chunks, _rag_indexed_files, _rag_ready
     with _rag_lock:
         chunks: list = []
 
-        # Synthetic built-in knowledge
+        # Synthetic built-in knowledge (always re-embedded at startup)
         for source, text in _RAG_SYNTHETIC_DOCS:
             chunks.extend(_chunk_text(text, source))
 
-        # User documents from data/knowledge/
-        if _RAG_KNOWLEDGE_DIR.exists():
-            for f in sorted(_RAG_KNOWLEDGE_DIR.iterdir()):
-                try:
-                    if f.suffix.lower() == ".pdf":
-                        text = _extract_pdf_text(f)
-                    elif f.suffix.lower() in (".docx", ".doc"):
-                        try:
-                            import docx as _docx
-                            doc = _docx.Document(str(f))
-                            text = "\n".join(p.text for p in doc.paragraphs)
-                        except ImportError:
-                            print(f"[RAG] python-docx not installed — skipping {f.name}")
-                            continue
-                    else:
-                        continue
-                    if text.strip():
-                        chunks.extend(_chunk_text(text, f.name))
-                        print(f"[RAG] Loaded {f.name} ({len(text)} chars)")
-                except Exception as e:
-                    print(f"[RAG] Error loading {f.name}: {e}")
+        # Load cached user documents (pre-embedded — no Ollama calls needed)
+        _RAG_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        for cache_file in sorted(_RAG_CACHE_DIR.glob("*.npz")):
+            try:
+                cached_chunks, orig_filename = _rag_cache_load(cache_file)
+                chunks.extend(cached_chunks)
+                _rag_indexed_files.add(orig_filename)
+                print(f"[RAG] Loaded from cache: {orig_filename} ({len(cached_chunks)} chunks)")
+            except Exception as e:
+                print(f"[RAG] Corrupt cache file {cache_file.name}: {e} — skipping")
 
-        # Chunks loaded — mark ready so queries can start immediately
         _rag_chunks = chunks
         _rag_ready = True
-        print(f"[RAG] Chunks loaded: {len(chunks)} — starting embedding…")
+        print(f"[RAG] Chunks loaded: {len(chunks)} (synthetic + cached)")
 
-    # Embed outside the lock so queries can run concurrently
+    # Embed only synthetic chunks (emb is None); cached chunks already have embeddings
     embedded = 0
     for chunk in _rag_chunks:
-        emb = _ollama_embed(chunk["text"])
-        if emb is not None:
-            chunk["emb"] = emb
-            embedded += 1
-    print(f"[RAG] Embedding done: {embedded}/{len(_rag_chunks)} chunks indexed")
+        if chunk["emb"] is None:
+            emb = _ollama_embed(chunk["text"])
+            if emb is not None:
+                chunk["emb"] = emb
+                embedded += 1
+    print(f"[RAG] Synthetic embedding done: {embedded} chunks")
 
 
-def rag_add_docs(files) -> str:
+def rag_add_docs(files) -> tuple:
     """Index uploaded PDF/DOCX files and add them to the live knowledge base."""
+    global _rag_indexed_files
     if not files:
-        return "Nessun file caricato."
+        return "Nessun file caricato.", _rag_doc_list()
     try:
         _requests.get(f"{OLLAMA_URL}/api/tags", timeout=3)
     except Exception:
         return (
             "❌ Ollama non raggiungibile — i documenti non possono essere indicizzati.\n"
-            "Avvia `ollama serve` e ricarica."
+            "Avvia `ollama serve` e ricarica.",
+            _rag_doc_list(),
         )
     lines = []
     for f in files:
         path = Path(f.name)
         suffix = path.suffix.lower()
+        if path.name in _rag_indexed_files:
+            lines.append(f"ℹ️ `{path.name}` — già indicizzato, saltato.")
+            continue
+
+        file_bytes = path.read_bytes()
+        cache_path = _rag_cache_path(path.name, file_bytes)
+
+        # Load from cache if available (avoids re-embedding)
+        if cache_path.exists():
+            try:
+                cached_chunks, _ = _rag_cache_load(cache_path)
+                with _rag_lock:
+                    _rag_chunks.extend(cached_chunks)
+                    _rag_indexed_files.add(path.name)
+                lines.append(f"✅ `{path.name}` — {len(cached_chunks)} chunk caricati dalla cache.")
+                continue
+            except Exception:
+                pass  # fall through to re-embed
+
         try:
             if suffix == ".pdf":
                 text = _extract_pdf_text(path)
             elif suffix in (".docx", ".doc"):
                 import docx as _docx
-                doc = _docx.Document(str(path))
-                text = "\n".join(p.text for p in doc.paragraphs)
+                doc_obj = _docx.Document(str(path))
+                text = "\n".join(p.text for p in doc_obj.paragraphs)
             else:
                 lines.append(f"⚠️ `{path.name}` — formato non supportato (solo PDF/DOCX).")
                 continue
@@ -1782,10 +1849,52 @@ def rag_add_docs(files) -> str:
             if emb is not None:
                 chunk["emb"] = emb
                 embedded += 1
-        _rag_chunks.extend(chunks)
+
+        try:
+            _rag_cache_save(cache_path, chunks, path.name)
+        except Exception as e:
+            print(f"[RAG] Cache write failed for {path.name}: {e}")
+
+        with _rag_lock:
+            _rag_chunks.extend(chunks)
+            _rag_indexed_files.add(path.name)
         lines.append(f"✅ `{path.name}` — {len(chunks)} chunk, {embedded} indicizzati.")
 
-    return "\n".join(lines)
+    return "\n".join(lines), _rag_doc_list()
+
+
+def rag_remove_doc(filename: str) -> tuple:
+    """Remove all chunks for a document from memory and delete its cache file."""
+    global _rag_chunks, _rag_indexed_files
+    if not filename or not filename.strip():
+        return "Nessun documento selezionato.", _rag_doc_list()
+
+    with _rag_lock:
+        before = len(_rag_chunks)
+        _rag_chunks = [c for c in _rag_chunks if c["source"] != filename]
+        removed_chunks = before - len(_rag_chunks)
+        _rag_indexed_files.discard(filename)
+
+    deleted_files = 0
+    if _RAG_CACHE_DIR.exists():
+        for cache_file in _RAG_CACHE_DIR.glob("*.npz"):
+            try:
+                with np.load(str(cache_file), allow_pickle=True) as data:
+                    match = str(data["filename"]) == filename
+                if match:
+                    cache_file.unlink()
+                    deleted_files += 1
+            except Exception:
+                pass
+
+    if removed_chunks == 0:
+        return f"⚠️ `{filename}` non trovato nell'indice.", _rag_doc_list()
+
+    msg = f"🗑️ `{filename}` rimosso ({removed_chunks} chunk eliminati"
+    if deleted_files:
+        msg += ", cache eliminata"
+    msg += ")."
+    return msg, _rag_doc_list()
 
 
 def rag_query(question: str) -> str:
@@ -1816,7 +1925,28 @@ def rag_query(question: str) -> str:
     if q_emb is None:
         return "❌ Impossibile generare l'embedding della domanda. Ollama è in esecuzione?"
 
-    results = _cosine_top_k(q_emb, k=3)
+    synthetic_sources = {s for s, _ in _RAG_SYNTHETIC_DOCS}
+    user_chunks = [c for c in _rag_chunks if c["emb"] is not None and c["source"] not in synthetic_sources]
+    synth_chunks = [c for c in _rag_chunks if c["emb"] is not None and c["source"] in synthetic_sources]
+
+    def _top_k_from(pool, q, k):
+        if not pool:
+            return []
+        embs = np.stack([c["emb"] for c in pool])
+        q_n = q / (np.linalg.norm(q) + 1e-9)
+        norms = np.linalg.norm(embs, axis=1, keepdims=True) + 1e-9
+        scores = (embs / norms) @ q_n
+        idxs = np.argsort(scores)[::-1][:k]
+        return [(float(scores[i]), pool[i]) for i in idxs]
+
+    # Always include up to 2 user-doc chunks + 2 synthetic chunks
+    user_results = _top_k_from(user_chunks, q_emb, 2)
+    synth_results = _top_k_from(synth_chunks, q_emb, 2)
+    # If no user docs, fall back to more synthetic chunks
+    if not user_results:
+        synth_results = _top_k_from(synth_chunks, q_emb, 4)
+    results = user_results + synth_results
+
     context = "\n\n".join(
         f"[{c['source']}]\n{c['text']}" for _, c in results
     )
@@ -1848,13 +1978,11 @@ with gr.Blocks() as rag_tab:
         "**Llama 3.2 via Ollama** (locale, nessun dato inviato online)."
     )
 
-    with gr.Accordion("📂 Aggiungi documenti alla knowledge base", open=False):
+    with gr.Accordion("📂 Gestione knowledge base", open=False):
         gr.Markdown(
             "Carica uno o più file PDF o DOCX per arricchire la knowledge base. "
-            "I documenti vengono indicizzati immediatamente e restano disponibili "
-            "per tutta la sessione.\n\n"
-            "I PDF scansionati vengono trascritti automaticamente con OCR.\n\n"
-            "*In alternativa, copia i file in `data/knowledge/` per caricarli automaticamente all'avvio.*"
+            "Gli embedding vengono salvati su disco e ricaricati automaticamente al prossimo avvio.\n\n"
+            "I PDF scansionati vengono trascritti automaticamente con OCR."
         )
         rag_upload = gr.File(
             label="Documenti (PDF o DOCX)",
@@ -1863,7 +1991,42 @@ with gr.Blocks() as rag_tab:
         )
         rag_upload_btn = gr.Button("Indicizza documenti", variant="secondary")
         rag_upload_status = gr.Markdown(label="Esito indicizzazione")
-        rag_upload_btn.click(rag_add_docs, inputs=rag_upload, outputs=rag_upload_status)
+
+        gr.Markdown("### Documenti indicizzati")
+        rag_doc_table = gr.Dataframe(
+            headers=["Documento", "Chunk"],
+            datatype=["str", "number"],
+            interactive=False,
+            label="Documenti nella knowledge base",
+            value=_rag_doc_list,
+        )
+        with gr.Row():
+            rag_remove_dd = gr.Dropdown(
+                label="Seleziona documento da rimuovere",
+                choices=_rag_doc_choices(),
+                interactive=True,
+            )
+            rag_remove_btn = gr.Button("🗑️ Rimuovi", variant="secondary")
+        rag_remove_status = gr.Markdown(label="Esito rimozione")
+
+        rag_upload_btn.click(
+            fn=rag_add_docs,
+            inputs=rag_upload,
+            outputs=[rag_upload_status, rag_doc_table],
+        ).then(
+            fn=lambda: gr.update(choices=_rag_doc_choices()),
+            inputs=None,
+            outputs=rag_remove_dd,
+        )
+        rag_remove_btn.click(
+            fn=rag_remove_doc,
+            inputs=rag_remove_dd,
+            outputs=[rag_remove_status, rag_doc_table],
+        ).then(
+            fn=lambda: gr.update(choices=_rag_doc_choices(), value=None),
+            inputs=None,
+            outputs=rag_remove_dd,
+        )
 
     rag_in = gr.Textbox(
         label="Domanda",
@@ -1882,6 +2045,12 @@ with gr.Blocks() as rag_tab:
         inputs=rag_in,
     )
     rag_btn.click(rag_query, inputs=rag_in, outputs=rag_out)
+
+    # Refresh table and dropdown when tab loads (background thread may have finished by then)
+    rag_tab.load(
+        fn=lambda: (gr.update(value=_rag_doc_list()), gr.update(choices=_rag_doc_choices())),
+        outputs=[rag_doc_table, rag_remove_dd],
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
