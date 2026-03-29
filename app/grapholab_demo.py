@@ -75,6 +75,8 @@ _writer_X_scaled = None       # scaled training features for open-set distance c
 _writer_dist_threshold = None  # auto-calibrated rejection threshold
 import threading as _threading
 import hashlib as _hashlib
+import json as _json
+import tempfile as _tempfile
 _writer_lock = _threading.Lock()
 
 # ── RAG / Ollama ──────────────────────────────────────────────────────────────
@@ -1897,33 +1899,33 @@ def rag_remove_doc(filename: str) -> tuple:
     return msg, _rag_doc_list()
 
 
-def rag_query(question: str) -> str:
-    if not question or not question.strip():
-        return ""
-    # Verifica Ollama raggiungibile
-    try:
-        _requests.get(f"{OLLAMA_URL}/api/tags", timeout=3)
-    except Exception:
-        return (
-            "❌ **Ollama non raggiungibile.**\n\n"
-            "Avvia il server con:\n```\nollama serve\n```\n"
-            "e assicurati che il modello sia scaricato:\n"
-            "```\nollama pull llama3.2\n```"
-        )
-    if not _rag_ready:
-        return "⏳ Indice della knowledge base in costruzione, riprovare tra qualche secondo…"
+def _stream_ollama(prompt: str):
+    """Yield response tokens from Ollama one at a time (streaming)."""
+    with _requests.post(
+        f"{OLLAMA_URL}/api/generate",
+        json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": True},
+        stream=True,
+        timeout=120,
+    ) as r:
+        for line in r.iter_lines():
+            if line:
+                data = _json.loads(line)
+                if not data.get("done"):
+                    yield data.get("response", "")
 
+
+def _rag_retrieve(question: str):
+    """Return (results, error_str). results is list of (score, chunk)."""
     embedded_chunks = [c for c in _rag_chunks if c["emb"] is not None]
     if not embedded_chunks:
         total = len(_rag_chunks)
-        return (
+        return None, (
             f"⏳ Embedding in corso (0/{total} chunk pronti). "
             "Riprovare tra qualche secondo — l'indicizzazione procede in background."
         )
-
     q_emb = _ollama_embed(question)
     if q_emb is None:
-        return "❌ Impossibile generare l'embedding della domanda. Ollama è in esecuzione?"
+        return None, "❌ Impossibile generare l'embedding della domanda. Ollama è in esecuzione?"
 
     synthetic_sources = {s for s, _ in _RAG_SYNTHETIC_DOCS}
     user_chunks = [c for c in _rag_chunks if c["emb"] is not None and c["source"] not in synthetic_sources]
@@ -1939,35 +1941,92 @@ def rag_query(question: str) -> str:
         idxs = np.argsort(scores)[::-1][:k]
         return [(float(scores[i]), pool[i]) for i in idxs]
 
-    # Always include up to 2 user-doc chunks + 2 synthetic chunks
     user_results = _top_k_from(user_chunks, q_emb, 2)
     synth_results = _top_k_from(synth_chunks, q_emb, 2)
-    # If no user docs, fall back to more synthetic chunks
     if not user_results:
         synth_results = _top_k_from(synth_chunks, q_emb, 4)
-    results = user_results + synth_results
+    return user_results + synth_results, None
 
-    context = "\n\n".join(
-        f"[{c['source']}]\n{c['text']}" for _, c in results
-    )
+
+def rag_chat(message: str, history: list):
+    """Streaming chatbot: yield updated history after each token."""
+    if not message or not message.strip():
+        yield history
+        return
+
+    # Verifica Ollama raggiungibile
+    try:
+        _requests.get(f"{OLLAMA_URL}/api/tags", timeout=3)
+    except Exception:
+        err = (
+            "❌ **Ollama non raggiungibile.**\n\n"
+            "Avvia il server con:\n```\nollama serve\n```\n"
+            "e assicurati che il modello sia scaricato:\n"
+            "```\nollama pull llama3.2\n```"
+        )
+        yield history + [[message, err]]
+        return
+
+    if not _rag_ready:
+        yield history + [[message, "⏳ Indice della knowledge base in costruzione, riprovare tra qualche secondo…"]]
+        return
+
+    results, err = _rag_retrieve(message)
+    if err:
+        yield history + [[message, err]]
+        return
+
+    context = "\n\n".join(f"[{c['source']}]\n{c['text']}" for _, c in results)
+
+    # Build conversation context from last 6 exchanges
+    recent = history[-6:] if len(history) > 6 else history
+    conv_text = ""
+    for user_msg, bot_msg in recent:
+        clean_bot = bot_msg.split("\n\n---\n")[0] if bot_msg else ""
+        conv_text += f"Utente: {user_msg}\nAssistente: {clean_bot}\n\n"
+
     prompt = (
         "Sei un esperto di grafologia forense. Rispondi in italiano, in modo preciso e "
         "conciso, basandoti ESCLUSIVAMENTE sui seguenti estratti.\n\n"
         f"{context}\n\n"
-        f"Domanda: {question}\n\nRisposta:"
     )
-    try:
-        r = _requests.post(
-            f"{OLLAMA_URL}/api/generate",
-            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
-            timeout=120,
-        )
-        answer = r.json().get("response", "").strip()
-    except Exception as e:
-        return f"❌ Errore nella generazione: {e}"
+    if conv_text:
+        prompt += f"Conversazione precedente:\n{conv_text}\n"
+    prompt += f"Domanda: {message}\n\nRisposta:"
 
     sources = list(dict.fromkeys(c["source"] for _, c in results))
-    return f"{answer}\n\n---\n*Fonti: {', '.join(sources)}*"
+    sources_footer = f"\n\n---\n*Fonti: {', '.join(sources)}*"
+
+    partial = ""
+    new_history = history + [[message, ""]]
+    try:
+        for token in _stream_ollama(prompt):
+            partial += token
+            new_history[-1][1] = partial
+            yield new_history
+    except Exception as e:
+        new_history[-1][1] = f"❌ Errore nella generazione: {e}"
+        yield new_history
+        return
+
+    new_history[-1][1] = partial + sources_footer
+    yield new_history
+
+
+def save_conversation_md(history: list):
+    """Save current chat history as a Markdown file and return path for download."""
+    if not history:
+        return gr.update(visible=False)
+    now = _datetime.now()
+    lines = [f"# Conversazione Forense — {now.strftime('%Y-%m-%d %H:%M')}\n"]
+    for user_msg, bot_msg in history:
+        lines.append(f"**Utente:** {user_msg}\n")
+        lines.append(f"**Consulente:** {bot_msg}\n")
+        lines.append("---\n")
+    filename = f"conversazione_{now.strftime('%Y%m%d_%H%M%S')}.md"
+    filepath = Path(_tempfile.gettempdir()) / filename
+    filepath.write_text("\n".join(lines), encoding="utf-8")
+    return gr.update(value=str(filepath), visible=True)
 
 
 with gr.Blocks() as rag_tab:
@@ -2028,13 +2087,22 @@ with gr.Blocks() as rag_tab:
             outputs=rag_remove_dd,
         )
 
-    rag_in = gr.Textbox(
-        label="Domanda",
-        placeholder="Es: Come si valuta l'inclinazione della scrittura?",
-        lines=2,
+    rag_chatbot = gr.Chatbot(
+        label="Consulente Forense IA",
+        height=500,
+        show_copy_button=True,
     )
-    rag_btn = gr.Button("Chiedi", variant="primary")
-    rag_out = gr.Markdown(label="Risposta")
+    rag_in = gr.Textbox(
+        placeholder="Es: Come si valuta l'inclinazione della scrittura? (Invio per inviare)",
+        lines=1,
+        show_label=False,
+    )
+    with gr.Row():
+        rag_btn = gr.Button("Invia", variant="primary")
+        rag_clear_btn = gr.Button("🗑️ Cancella", variant="secondary")
+        rag_save_btn = gr.Button("💾 Salva conversazione", variant="secondary")
+    rag_download = gr.File(label="Download conversazione", visible=False)
+
     gr.Examples(
         examples=[
             ["Cosa indica una forte pressione nella scrittura?"],
@@ -2044,7 +2112,22 @@ with gr.Blocks() as rag_tab:
         ],
         inputs=rag_in,
     )
-    rag_btn.click(rag_query, inputs=rag_in, outputs=rag_out)
+
+    def _respond(message, history):
+        for updated_history in rag_chat(message, history):
+            yield "", updated_history
+
+    rag_btn.click(_respond, inputs=[rag_in, rag_chatbot], outputs=[rag_in, rag_chatbot])
+    rag_in.submit(_respond, inputs=[rag_in, rag_chatbot], outputs=[rag_in, rag_chatbot])
+    rag_clear_btn.click(
+        fn=lambda: ([], "", gr.update(visible=False)),
+        outputs=[rag_chatbot, rag_in, rag_download],
+    )
+    rag_save_btn.click(
+        fn=save_conversation_md,
+        inputs=rag_chatbot,
+        outputs=rag_download,
+    )
 
     # Refresh table and dropdown when tab loads (background thread may have finished by then)
     rag_tab.load(
