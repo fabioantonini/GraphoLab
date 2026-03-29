@@ -1948,6 +1948,21 @@ def _rag_retrieve(question: str):
     return user_results + synth_results, None
 
 
+def _content_str(content) -> str:
+    """Normalize Gradio 6.x content field (str or list of parts) to plain str."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, dict):
+                parts.append(part.get("text", "") or part.get("content", ""))
+            elif isinstance(part, str):
+                parts.append(part)
+        return "".join(parts)
+    return str(content) if content is not None else ""
+
+
 def rag_chat(message: str, history: list):
     """Streaming chatbot: yield updated history after each token.
 
@@ -1989,8 +2004,8 @@ def rag_chat(message: str, history: list):
     i = 0
     while i < len(recent) - 1:
         if recent[i]["role"] == "user" and recent[i + 1]["role"] == "assistant":
-            u = recent[i]["content"]
-            a = recent[i + 1]["content"].split("\n\n---\n")[0]
+            u = _content_str(recent[i]["content"])
+            a = _content_str(recent[i + 1]["content"]).split("\n\n---\n")[0]
             conv_text += f"Utente: {u}\nAssistente: {a}\n\n"
             i += 2
         else:
@@ -2035,7 +2050,7 @@ def save_conversation_md(history: list):
     lines = [f"# Conversazione Forense — {now.strftime('%Y-%m-%d %H:%M')}\n"]
     for msg in history:
         role = msg.get("role", "")
-        content = msg.get("content", "")
+        content = _content_str(msg.get("content", ""))
         if role == "user":
             lines.append(f"**Utente:** {content}\n")
         elif role == "assistant":
