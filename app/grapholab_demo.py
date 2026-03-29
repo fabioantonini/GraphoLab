@@ -1949,7 +1949,11 @@ def _rag_retrieve(question: str):
 
 
 def rag_chat(message: str, history: list):
-    """Streaming chatbot: yield updated history after each token."""
+    """Streaming chatbot: yield updated history after each token.
+
+    history is a flat list of {"role": "user"|"assistant", "content": str}
+    as required by Gradio 6.x Chatbot.
+    """
     if not message or not message.strip():
         yield history
         return
@@ -1964,26 +1968,33 @@ def rag_chat(message: str, history: list):
             "e assicurati che il modello sia scaricato:\n"
             "```\nollama pull llama3.2\n```"
         )
-        yield history + [[message, err]]
+        yield history + [{"role": "user", "content": message}, {"role": "assistant", "content": err}]
         return
 
     if not _rag_ready:
-        yield history + [[message, "⏳ Indice della knowledge base in costruzione, riprovare tra qualche secondo…"]]
+        msg = "⏳ Indice della knowledge base in costruzione, riprovare tra qualche secondo…"
+        yield history + [{"role": "user", "content": message}, {"role": "assistant", "content": msg}]
         return
 
     results, err = _rag_retrieve(message)
     if err:
-        yield history + [[message, err]]
+        yield history + [{"role": "user", "content": message}, {"role": "assistant", "content": err}]
         return
 
     context = "\n\n".join(f"[{c['source']}]\n{c['text']}" for _, c in results)
 
-    # Build conversation context from last 6 exchanges
-    recent = history[-6:] if len(history) > 6 else history
+    # Build conversation context from last 6 exchanges (12 messages in flat list)
+    recent = history[-12:] if len(history) > 12 else history
     conv_text = ""
-    for user_msg, bot_msg in recent:
-        clean_bot = bot_msg.split("\n\n---\n")[0] if bot_msg else ""
-        conv_text += f"Utente: {user_msg}\nAssistente: {clean_bot}\n\n"
+    i = 0
+    while i < len(recent) - 1:
+        if recent[i]["role"] == "user" and recent[i + 1]["role"] == "assistant":
+            u = recent[i]["content"]
+            a = recent[i + 1]["content"].split("\n\n---\n")[0]
+            conv_text += f"Utente: {u}\nAssistente: {a}\n\n"
+            i += 2
+        else:
+            i += 1
 
     prompt = (
         "Sei un esperto di grafologia forense. Rispondi in italiano, in modo preciso e "
@@ -1998,18 +2009,21 @@ def rag_chat(message: str, history: list):
     sources_footer = f"\n\n---\n*Fonti: {', '.join(sources)}*"
 
     partial = ""
-    new_history = history + [[message, ""]]
+    new_history = history + [
+        {"role": "user", "content": message},
+        {"role": "assistant", "content": ""},
+    ]
     try:
         for token in _stream_ollama(prompt):
             partial += token
-            new_history[-1][1] = partial
+            new_history[-1]["content"] = partial
             yield new_history
     except Exception as e:
-        new_history[-1][1] = f"❌ Errore nella generazione: {e}"
+        new_history[-1]["content"] = f"❌ Errore nella generazione: {e}"
         yield new_history
         return
 
-    new_history[-1][1] = partial + sources_footer
+    new_history[-1]["content"] = partial + sources_footer
     yield new_history
 
 
@@ -2019,10 +2033,14 @@ def save_conversation_md(history: list):
         return gr.update(visible=False)
     now = _datetime.now()
     lines = [f"# Conversazione Forense — {now.strftime('%Y-%m-%d %H:%M')}\n"]
-    for user_msg, bot_msg in history:
-        lines.append(f"**Utente:** {user_msg}\n")
-        lines.append(f"**Consulente:** {bot_msg}\n")
-        lines.append("---\n")
+    for msg in history:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        if role == "user":
+            lines.append(f"**Utente:** {content}\n")
+        elif role == "assistant":
+            lines.append(f"**Consulente:** {content}\n")
+            lines.append("---\n")
     filename = f"conversazione_{now.strftime('%Y%m%d_%H%M%S')}.md"
     filepath = Path(_tempfile.gettempdir()) / filename
     filepath.write_text("\n".join(lines), encoding="utf-8")
@@ -2090,7 +2108,6 @@ with gr.Blocks() as rag_tab:
     rag_chatbot = gr.Chatbot(
         label="Consulente Forense IA",
         height=500,
-        type="tuples",
     )
     rag_in = gr.Textbox(
         placeholder="Es: Come si valuta l'inclinazione della scrittura? (Invio per inviare)",
