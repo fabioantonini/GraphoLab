@@ -82,7 +82,8 @@ _writer_lock = _threading.Lock()
 # ── RAG / Ollama ──────────────────────────────────────────────────────────────
 OLLAMA_URL = "http://localhost:11434"
 OLLAMA_MODEL = "llama3.2"  # default / fallback
-_rag_model = OLLAMA_MODEL  # runtime selection (updated via UI)
+_embed_model = OLLAMA_MODEL  # embedding model — fixed (changing it invalidates cache)
+_rag_model = OLLAMA_MODEL   # generation model — selectable via UI
 _rag_chunks: list = []   # [{"text": str, "source": str, "emb": np.ndarray}]
 _rag_indexed_files: set = set()  # filenames already indexed via upload
 _rag_ready = False
@@ -1645,7 +1646,7 @@ def _ollama_embed(text: str):
     try:
         r = _requests.post(
             f"{OLLAMA_URL}/api/embeddings",
-            json={"model": _rag_model, "prompt": text},
+            json={"model": _embed_model, "prompt": text},
             timeout=30,
         )
         return np.array(r.json()["embedding"], dtype=np.float32)
@@ -1661,7 +1662,7 @@ def _ollama_embed_batch(texts: list) -> list:
     try:
         r = _requests.post(
             f"{OLLAMA_URL}/api/embed",
-            json={"model": _rag_model, "input": texts},
+            json={"model": _embed_model, "input": texts},
             timeout=max(30, len(texts) * 3),
         )
         r.raise_for_status()
@@ -2165,7 +2166,7 @@ with gr.Blocks() as rag_tab:
 
     with gr.Row():
         rag_model_dd = gr.Dropdown(
-            label="Modello Ollama",
+            label="Modello di generazione (Ollama)",
             choices=_ollama_list_models(),
             value=_rag_model,
             interactive=True,
