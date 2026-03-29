@@ -1306,6 +1306,177 @@ def run_pipeline(
     yield (_, _, _, _, _, _, _, _, _, _, _, _, _, llm_report)
 
 
+def _generate_pipeline_pdf(
+    s1_img, s1_txt,
+    s2_txt,
+    s3_md,
+    s4_md, s4_img,
+    s5_md, s5_img,
+    s6_txt, s6_img,
+    llm_text,
+) -> str:
+    """Generate a PDF forensic report from pipeline outputs. Returns the file path."""
+    import tempfile, re, unicodedata
+    from fpdf import FPDF
+    from PIL import Image as _PILImage
+    import io as _io
+    import datetime
+
+    def _to_latin1(text: str) -> str:
+        """Normalize Unicode to latin-1 for fpdf2 core fonts."""
+        if not text:
+            return ""
+        replacements = {
+            "\u2014": "-", "\u2013": "-",
+            "\u2018": "'", "\u2019": "'",
+            "\u201c": '"', "\u201d": '"',
+            "\u2026": "...",
+            "\u2022": "*",
+        }
+        for src, dst in replacements.items():
+            text = text.replace(src, dst)
+        text = unicodedata.normalize("NFKD", text)
+        return text.encode("latin-1", errors="replace").decode("latin-1")
+
+    def _md_to_plain(text: str) -> str:
+        """Strip markdown syntax to plain text for PDF rendering."""
+        if not text:
+            return ""
+        text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+        text = re.sub(r"\*{1,2}(.+?)\*{1,2}", r"\1", text)
+        text = re.sub(r"`{1,3}[^`]*`{1,3}", "", text)
+        text = re.sub(r"^\|.*\|$", "", text, flags=re.MULTILINE)
+        text = re.sub(r"^[-|]+$", "", text, flags=re.MULTILINE)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return _to_latin1(text.strip())
+
+    def _numpy_to_jpeg_bytes(arr) -> bytes | None:
+        """Convert numpy array to JPEG bytes for embedding in PDF."""
+        if arr is None:
+            return None
+        try:
+            img = _PILImage.fromarray(arr.astype("uint8"))
+            buf = _io.BytesIO()
+            img.save(buf, format="JPEG", quality=85)
+            return buf.getvalue()
+        except Exception:
+            return None
+
+    class ForensicPDF(FPDF):
+        def header(self):
+            self.set_font("Helvetica", "B", 10)
+            self.set_text_color(80, 80, 80)
+            self.cell(0, 8, "GraphoLab - Referto Forense Integrato", align="C")
+            self.ln(2)
+            self.set_draw_color(180, 180, 180)
+            self.line(10, self.get_y(), 200, self.get_y())
+            self.ln(4)
+
+        def footer(self):
+            self.set_y(-15)
+            self.set_font("Helvetica", "I", 8)
+            self.set_text_color(130, 130, 130)
+            self.cell(0, 10, f"Pagina {self.page_no()} - Generato da GraphoLab", align="C")
+
+    pdf = ForensicPDF()
+    pdf.set_auto_page_break(auto=True, margin=18)
+    pdf.add_page()
+
+    # ── Titolo ────────────────────────────────────────────────────────────────
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.set_text_color(30, 30, 30)
+    pdf.cell(0, 12, "Referto Forense Integrato", align="C")
+    pdf.ln(4)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(100, 100, 100)
+    now = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+    pdf.cell(0, 8, f"Data generazione: {now}", align="C")
+    pdf.ln(10)
+
+    def _section_title(title: str):
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_fill_color(50, 80, 120)
+        pdf.cell(0, 8, _to_latin1(f"  {title}"), fill=True)
+        pdf.ln(4)
+        pdf.set_text_color(30, 30, 30)
+
+    def _body_text(text: str):
+        if not text:
+            return
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(40, 40, 40)
+        pdf.multi_cell(0, 5, _md_to_plain(text))
+        pdf.ln(3)
+
+    def _embed_image(arr, max_w: int = 170):
+        data = _numpy_to_jpeg_bytes(arr)
+        if data is None:
+            return
+        buf = _io.BytesIO(data)
+        img = _PILImage.open(buf)
+        w, h = img.size
+        ratio = min(max_w / w, 100 / h)
+        disp_w, disp_h = w * ratio, h * ratio
+        buf.seek(0)
+        x = (210 - disp_w) / 2
+        pdf.image(buf, x=x, w=disp_w, h=disp_h)
+        pdf.ln(4)
+
+    # ── Step 1 ────────────────────────────────────────────────────────────────
+    _section_title("Step 1 — Rilevamento Firma (YOLOv8)")
+    _body_text(s1_txt)
+    _embed_image(s1_img)
+
+    # ── Step 2 ────────────────────────────────────────────────────────────────
+    _section_title("Step 2 — Trascrizione HTR (EasyOCR)")
+    _body_text(s2_txt)
+
+    # ── Step 3 ────────────────────────────────────────────────────────────────
+    _section_title("Step 3 — Riconoscimento Entita' (NER)")
+    _body_text(s3_md)
+
+    # ── Step 4 ────────────────────────────────────────────────────────────────
+    _section_title("Step 4 — Identificazione Scrittore")
+    _body_text(s4_md)
+    _embed_image(s4_img)
+
+    # ── Step 5 ────────────────────────────────────────────────────────────────
+    _section_title("Step 5 — Analisi Grafologica")
+    _body_text(s5_md)
+    _embed_image(s5_img)
+
+    # ── Step 6 ────────────────────────────────────────────────────────────────
+    _section_title("Step 6 — Verifica Firma (SigNet)")
+    _body_text(s6_txt)
+    _embed_image(s6_img)
+
+    # ── Step 7: LLM ───────────────────────────────────────────────────────────
+    _section_title("Step 7 — Valutazione LLM (Ollama)")
+    _body_text(llm_text)
+
+    # ── Disclaimer ────────────────────────────────────────────────────────────
+    pdf.ln(6)
+    pdf.set_draw_color(180, 180, 180)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(4)
+    pdf.set_font("Helvetica", "I", 8)
+    pdf.set_text_color(120, 120, 120)
+    pdf.multi_cell(
+        0, 4,
+        "Referto generato automaticamente da GraphoLab. "
+        "Tutti i risultati hanno carattere indicativo e devono essere valutati "
+        "da un perito calligrafo qualificato.",
+    )
+
+    # ── Salvataggio ───────────────────────────────────────────────────────────
+    tmp = tempfile.NamedTemporaryFile(
+        suffix=".pdf", prefix="grapholab_referto_", delete=False
+    )
+    pdf.output(tmp.name)
+    return tmp.name
+
+
 with gr.Blocks() as pipeline_tab:
     gr.Markdown(
         "## Pipeline Forense Integrata\n\n"
@@ -1373,6 +1544,10 @@ with gr.Blocks() as pipeline_tab:
         with gr.Accordion("Step 7 — Valutazione LLM (Ollama)", open=True):
             out_llm = gr.Markdown(label="Referto sintetico LLM")
 
+    with gr.Row(visible=False) as pdf_row:
+        pdf_btn = gr.Button("📄 Scarica Report PDF", variant="secondary")
+        pdf_out = gr.File(label="Report PDF", file_types=[".pdf"])
+
     pipe_btn.click(
         fn=run_pipeline,
         inputs=[pipe_doc, pipe_ref],
@@ -1387,6 +1562,24 @@ with gr.Blocks() as pipeline_tab:
             pipe_results,
             out_llm,
         ],
+    ).then(
+        fn=lambda: gr.update(visible=True),
+        inputs=None,
+        outputs=pdf_row,
+    )
+
+    pdf_btn.click(
+        fn=_generate_pipeline_pdf,
+        inputs=[
+            out_s1_img, out_s1_txt,
+            out_s2_txt,
+            out_s3_md,
+            out_s4_md, out_s4_img,
+            out_s5_md, out_s5_img,
+            out_s6_txt, out_s6_img,
+            out_llm,
+        ],
+        outputs=pdf_out,
     )
 
 
