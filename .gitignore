@@ -217,5 +217,8 @@ data/cedar/
 data/knowledge/*.docx
 data/knowledge/*.doc
 
+# RAG cache — embedding NumPy (rigenerati localmente, non committare)
+data/rag_cache/*.npz
+
 # Claude Code local settings (contengono percorsi e preferenze locali)
 .claude/settings.json
