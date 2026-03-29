@@ -2090,7 +2090,6 @@ with gr.Blocks() as rag_tab:
     rag_chatbot = gr.Chatbot(
         label="Consulente Forense IA",
         height=500,
-        show_copy_button=True,
     )
     rag_in = gr.Textbox(
         placeholder="Es: Come si valuta l'inclinazione della scrittura? (Invio per inviare)",
