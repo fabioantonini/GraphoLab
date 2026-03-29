@@ -1652,6 +1652,28 @@ def _ollama_embed(text: str):
         return None
 
 
+def _ollama_embed_batch(texts: list) -> list:
+    """Embed a list of texts in a single Ollama call (/api/embed, Ollama >= 0.1.26).
+    Returns a list of np.ndarray (or None on error). Falls back to sequential
+    _ollama_embed calls if the batch endpoint is unavailable.
+    """
+    try:
+        r = _requests.post(
+            f"{OLLAMA_URL}/api/embed",
+            json={"model": OLLAMA_MODEL, "input": texts},
+            timeout=max(30, len(texts) * 3),
+        )
+        r.raise_for_status()
+        data = r.json()
+        embeddings = data.get("embeddings") or data.get("embedding")
+        if embeddings and len(embeddings) == len(texts):
+            return [np.array(e, dtype=np.float32) for e in embeddings]
+    except Exception:
+        pass
+    # Fallback: sequential calls
+    return [_ollama_embed(t) for t in texts]
+
+
 def _cosine_top_k(query_emb: np.ndarray, k: int = 3) -> list:
     if not _rag_chunks:
         return []
@@ -1780,14 +1802,17 @@ def _rag_load_docs():
         print(f"[RAG] Chunks loaded: {len(chunks)} (synthetic + cached)")
 
     # Embed only synthetic chunks (emb is None); cached chunks already have embeddings
-    embedded = 0
-    for chunk in _rag_chunks:
-        if chunk["emb"] is None:
-            emb = _ollama_embed(chunk["text"])
+    to_embed = [c for c in _rag_chunks if c["emb"] is None]
+    if to_embed:
+        embeddings = _ollama_embed_batch([c["text"] for c in to_embed])
+        embedded = 0
+        for chunk, emb in zip(to_embed, embeddings):
             if emb is not None:
                 chunk["emb"] = emb
                 embedded += 1
-    print(f"[RAG] Synthetic embedding done: {embedded} chunks")
+        print(f"[RAG] Synthetic embedding done: {embedded} chunks")
+    else:
+        print("[RAG] Synthetic embedding done: 0 chunks (all cached)")
 
 
 def rag_add_docs(files) -> tuple:
@@ -1845,9 +1870,9 @@ def rag_add_docs(files) -> tuple:
             continue
 
         chunks = _chunk_text(text, path.name)
+        embeddings = _ollama_embed_batch([c["text"] for c in chunks])
         embedded = 0
-        for chunk in chunks:
-            emb = _ollama_embed(chunk["text"])
+        for chunk, emb in zip(chunks, embeddings):
             if emb is not None:
                 chunk["emb"] = emb
                 embedded += 1
