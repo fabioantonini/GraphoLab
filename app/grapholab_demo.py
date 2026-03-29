@@ -81,7 +81,8 @@ _writer_lock = _threading.Lock()
 
 # ── RAG / Ollama ──────────────────────────────────────────────────────────────
 OLLAMA_URL = "http://localhost:11434"
-OLLAMA_MODEL = "llama3.2"
+OLLAMA_MODEL = "llama3.2"  # default / fallback
+_rag_model = OLLAMA_MODEL  # runtime selection (updated via UI)
 _rag_chunks: list = []   # [{"text": str, "source": str, "emb": np.ndarray}]
 _rag_indexed_files: set = set()  # filenames already indexed via upload
 _rag_ready = False
@@ -1644,7 +1645,7 @@ def _ollama_embed(text: str):
     try:
         r = _requests.post(
             f"{OLLAMA_URL}/api/embeddings",
-            json={"model": OLLAMA_MODEL, "prompt": text},
+            json={"model": _rag_model, "prompt": text},
             timeout=30,
         )
         return np.array(r.json()["embedding"], dtype=np.float32)
@@ -1660,7 +1661,7 @@ def _ollama_embed_batch(texts: list) -> list:
     try:
         r = _requests.post(
             f"{OLLAMA_URL}/api/embed",
-            json={"model": OLLAMA_MODEL, "input": texts},
+            json={"model": _rag_model, "input": texts},
             timeout=max(30, len(texts) * 3),
         )
         r.raise_for_status()
@@ -1672,6 +1673,23 @@ def _ollama_embed_batch(texts: list) -> list:
         pass
     # Fallback: sequential calls
     return [_ollama_embed(t) for t in texts]
+
+
+def _ollama_list_models() -> list:
+    """Return sorted list of model names available in Ollama."""
+    try:
+        r = _requests.get(f"{OLLAMA_URL}/api/tags", timeout=3)
+        models = [m["name"] for m in r.json().get("models", [])]
+        return sorted(models) if models else [OLLAMA_MODEL]
+    except Exception:
+        return [OLLAMA_MODEL]
+
+
+def set_rag_model(model_name: str) -> str:
+    global _rag_model
+    if model_name:
+        _rag_model = model_name
+    return f"✅ Modello attivo: **{_rag_model}**"
 
 
 def _cosine_top_k(query_emb: np.ndarray, k: int = 3) -> list:
@@ -1928,7 +1946,7 @@ def _stream_ollama(prompt: str):
     """Yield response tokens from Ollama one at a time (streaming)."""
     with _requests.post(
         f"{OLLAMA_URL}/api/generate",
-        json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": True},
+        json={"model": _rag_model, "prompt": prompt, "stream": True},
         stream=True,
         timeout=120,
     ) as r:
@@ -2091,8 +2109,8 @@ with gr.Blocks() as rag_tab:
     gr.Markdown(
         "## Consulente Forense IA\n"
         "Fai domande sulla grafologia forense. Il sistema recupera gli estratti più "
-        "rilevanti dalla knowledge base e genera una risposta in italiano con "
-        "**Llama 3.2 via Ollama** (locale, nessun dato inviato online)."
+        "rilevanti dalla knowledge base e genera una risposta in italiano con un "
+        "**modello Ollama locale** (nessun dato inviato online)."
     )
 
     with gr.Accordion("📂 Gestione knowledge base", open=False):
@@ -2145,6 +2163,22 @@ with gr.Blocks() as rag_tab:
             outputs=rag_remove_dd,
         )
 
+    with gr.Row():
+        rag_model_dd = gr.Dropdown(
+            label="Modello Ollama",
+            choices=_ollama_list_models(),
+            value=_rag_model,
+            interactive=True,
+            scale=3,
+        )
+        rag_model_refresh = gr.Button("🔄", variant="secondary", scale=1)
+    rag_model_status = gr.Markdown(visible=False)
+    gr.Markdown(
+        "*⚠️ Cambiare modello dopo aver indicizzato documenti può degradare il retrieval "
+        "(gli embedding in cache usano il modello precedente). "
+        "Re-indicizzare i documenti per risultati ottimali.*"
+    )
+
     rag_chatbot = gr.Chatbot(
         label="Consulente Forense IA",
         height=500,
@@ -2174,6 +2208,16 @@ with gr.Blocks() as rag_tab:
         for updated_history in rag_chat(message, history):
             yield "", updated_history
 
+    rag_model_dd.change(
+        fn=lambda m: gr.update(value=set_rag_model(m), visible=True),
+        inputs=rag_model_dd,
+        outputs=rag_model_status,
+    )
+    rag_model_refresh.click(
+        fn=lambda: gr.update(choices=_ollama_list_models(), value=_rag_model),
+        outputs=rag_model_dd,
+    )
+
     rag_btn.click(_respond, inputs=[rag_in, rag_chatbot], outputs=[rag_in, rag_chatbot])
     rag_in.submit(_respond, inputs=[rag_in, rag_chatbot], outputs=[rag_in, rag_chatbot])
     rag_clear_btn.click(
@@ -2186,10 +2230,14 @@ with gr.Blocks() as rag_tab:
         outputs=rag_download,
     )
 
-    # Refresh table and dropdown when tab loads (background thread may have finished by then)
+    # Refresh table, dropdowns and model list when tab loads
     rag_tab.load(
-        fn=lambda: (gr.update(value=_rag_doc_list()), gr.update(choices=_rag_doc_choices())),
-        outputs=[rag_doc_table, rag_remove_dd],
+        fn=lambda: (
+            gr.update(value=_rag_doc_list()),
+            gr.update(choices=_rag_doc_choices()),
+            gr.update(choices=_ollama_list_models(), value=_rag_model),
+        ),
+        outputs=[rag_doc_table, rag_remove_dd, rag_model_dd],
     )
 
 
