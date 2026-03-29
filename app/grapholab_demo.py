@@ -1332,21 +1332,30 @@ def _generate_pipeline_pdf(
             "\u201c": '"', "\u201d": '"',
             "\u2026": "...",
             "\u2022": "*",
+            "\u2713": "v", "\u2714": "v",   # checkmark
+            "\u2718": "x", "\u2716": "x",   # cross mark
+            "\U0001f947": "1.", "\U0001f948": "2.", "\U0001f949": "3.",  # medaglie
+            "\u26a0\ufe0f": "(!)", "\u26a0": "(!)",  # warning
+            "\U0001f50d": "",  # lente di ingrandimento
+            "\U0001f5d1": "",  # cestino
         }
         for src, dst in replacements.items():
             text = text.replace(src, dst)
-        text = unicodedata.normalize("NFKD", text)
         return text.encode("latin-1", errors="replace").decode("latin-1")
 
     def _md_to_plain(text: str) -> str:
         """Strip markdown syntax to plain text for PDF rendering."""
         if not text:
             return ""
+        # convert markdown table rows to pipe-separated plain text
+        def _table_row_to_plain(m):
+            cells = [c.strip() for c in m.group(0).strip("|").split("|")]
+            return "  |  ".join(c for c in cells if c)
+        text = re.sub(r"^[-| ]+$", "", text, flags=re.MULTILINE)   # separator rows
+        text = re.sub(r"^\|.*\|$", _table_row_to_plain, text, flags=re.MULTILINE)
         text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
         text = re.sub(r"\*{1,2}(.+?)\*{1,2}", r"\1", text)
         text = re.sub(r"`{1,3}[^`]*`{1,3}", "", text)
-        text = re.sub(r"^\|.*\|$", "", text, flags=re.MULTILINE)
-        text = re.sub(r"^[-|]+$", "", text, flags=re.MULTILINE)
         text = re.sub(r"\n{3,}", "\n\n", text)
         return _to_latin1(text.strip())
 
@@ -1398,7 +1407,7 @@ def _generate_pipeline_pdf(
         pdf.set_text_color(255, 255, 255)
         pdf.set_fill_color(50, 80, 120)
         pdf.cell(0, 8, _to_latin1(f"  {title}"), fill=True)
-        pdf.ln(4)
+        pdf.ln(12)
         pdf.set_text_color(30, 30, 30)
 
     def _body_text(text: str):
@@ -1434,7 +1443,7 @@ def _generate_pipeline_pdf(
 
     # ── Step 3 ────────────────────────────────────────────────────────────────
     _section_title("Step 3 — Riconoscimento Entita' (NER)")
-    _body_text(s3_md)
+    _body_text(s3_md or "Nessuna entita' rilevata nel testo trascritto.")
 
     # ── Step 4 ────────────────────────────────────────────────────────────────
     _section_title("Step 4 — Identificazione Scrittore")
@@ -1479,7 +1488,7 @@ def _generate_pipeline_pdf(
 
 with gr.Blocks() as pipeline_tab:
     gr.Markdown(
-        "## Pipeline Forense Integrata\n\n"
+        "## Perizia Forense Automatica\n\n"
         "Carica il documento da esaminare (es. testamento olografo, lettera anonima, contratto) "
         "e, opzionalmente, una firma di riferimento autentica. "
         "Il sistema eseguirà in sequenza tutti e sei gli strumenti AI e produrrà un **referto forense integrato**.\n\n"
@@ -2503,7 +2512,7 @@ demo = gr.TabbedInterface(
         "Riconoscimento Entità",
         "Identificazione Scrittore",
         "Analisi Grafologica",
-        "Pipeline Forense",
+        "Perizia Forense Automatica",
         "Datazione Documenti",
         "Consulente Forense IA",
     ],
