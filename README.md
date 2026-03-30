@@ -4,7 +4,7 @@ emoji: 🔬
 colorFrom: blue
 colorTo: indigo
 sdk: gradio
-sdk_version: "5.9.1"
+sdk_version: "5.25.0"
 app_file: app/grapholab_demo.py
 pinned: false
 license: apache-2.0
