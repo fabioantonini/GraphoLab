@@ -1,6 +1,6 @@
 # GraphoLab — Commercial Roadmap
 
-> This document outlines considerations and a development roadmap for evolving GraphoLab from a demo laboratory into a commercial product. No implementation is planned at this stage — this is a reference document for future decisions.
+> This document outlines the development roadmap for evolving GraphoLab from a demo laboratory into a commercial product.
 
 ---
 
@@ -17,9 +17,64 @@
 
 ---
 
+## Architecture Decisions (confirmed 2026-03-31)
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Frontend | **React + shadcn/ui** | Largest ecosystem, professional components ready-to-use |
+| Backend API | **FastAPI** | Async, automatic OpenAPI docs, Python-native |
+| Database | **PostgreSQL** | Cases, users, audit log |
+| File storage | **MinIO** (S3-compatible) | Documents and images, on-premise |
+| Auth | **JWT + bcrypt** | Keycloak/SSO deferred to enterprise phase |
+| PDF reports | **WeasyPrint** or **ReportLab** | Forensic report generation |
+| Deployment | **On-premise Docker** | Primary target; forensic data must not leave client network |
+| AI logic | **`core/` shared package** | Reused by both Gradio demo and FastAPI backend |
+
+### Key architectural principles
+
+#### 1. Thin frontend (dumb client)
+
+The React frontend does zero processing. It only renders UI and makes HTTP calls to the backend.
+All logic — AI, validation, business rules, auth — lives in the backend or in `core/`.
+
+#### 2. Shared `core/` package
+
+All AI/ML logic lives in pure Python modules under `core/`, with no dependency on any web framework.
+`core/` is called by the FastAPI backend (for the professional app) and directly by `grapholab_demo.py` (for the Gradio demo).
+
+#### 3. Every feature follows the same three-layer pattern
+
+- `core/<module>.py` — pure AI/business logic, no HTTP, fully testable in isolation
+- `backend/routers/<module>.py` — FastAPI router: receives request, calls `core/`, returns JSON
+- `frontend/src/...` — React component: calls the endpoint, renders the result
+
+#### 4. Gradio demo preserved
+
+`app/grapholab_demo.py` is preserved as-is for demos and HF Spaces.
+It calls `core/` directly — acceptable because it is a local single-user demo, not a multi-user web app.
+
+```text
+grapholab/
+├── core/                    # shared AI logic (new)
+│   ├── ocr.py
+│   ├── signature.py
+│   ├── graphology.py
+│   ├── ner.py
+│   ├── writer.py
+│   ├── pipeline.py
+│   ├── dating.py
+│   └── rag.py
+├── app/
+│   └── grapholab_demo.py    # Gradio demo (preserved, refactored to import from core/)
+├── backend/                 # FastAPI professional app (new)
+└── frontend/                # React + shadcn/ui SPA (new)
+```
+
+---
+
 ## Priority Issue: Dependency Licenses
 
-**Two dependencies carry AGPL-3.0 licenses**, which impose obligations on any commercial product — even SaaS deployments must disclose source code unless a commercial license is purchased.
+**Two dependencies carry AGPL-3.0 licenses**, which impose obligations on any commercial product.
 
 | Dependency | License | Commercial impact |
 |---|---|---|
@@ -27,22 +82,10 @@
 | `albumentations` | AGPL-3.0 / Commercial | Same constraint |
 | All others | BSD / Apache 2.0 / MIT | No commercial restrictions |
 
-**Three options to resolve this before any commercial release:**
+**Resolution (recommended before any commercial release):**
 
-**Option A — Replace AGPL dependencies** *(recommended)*
-- Replace `ultralytics` with an Apache 2.0-licensed detector (e.g. RT-DETR via `transformers`)
-- Remove `albumentations` from requirements (not used in production code)
-- Product code stays fully proprietary at no ongoing cost
-
-**Option B — Purchase commercial licenses**
-- Ultralytics Enterprise License: ~$1,000–5,000/year
-- Albumentations commercial license: separate pricing
-- Keep AGPL dependencies as-is, proprietary code stays closed
-
-**Option C — Release the product as open source**
-- Publish under AGPL-3.0 or open-core model
-- Revenue from services, support, and enterprise features
-- Maximises community visibility
+- Replace `ultralytics` with RT-DETR via `transformers` (Apache 2.0) — covers the Lab 04 signature detection use case
+- Remove `albumentations` from requirements (not used in production code, only in notebooks)
 
 ---
 
@@ -68,87 +111,117 @@ Forensic data (signatures, manuscripts, legal documents) is highly sensitive. In
 - **Chain of custody** requirements mandate full traceability
 - **GDPR** (EU) requires control over data residency
 
-### Recommended deployment options
+### Deployment options
 
-**Option 1 — On-premise Docker** *(primary, already prototyped)*
+**Option 1 — On-premise Docker** *(primary, confirmed)*
 - Extend the existing `docker-compose.yml`
 - Client installs on a local server or company VM
 - Multi-user, browser access from internal network
 - Easy to update; no data leaves the network
-- Requires minimal IT skills to install
 
-**Option 2 — Standalone Desktop** *(for individual practitioners)*
+**Option 2 — Standalone Desktop** *(for individual practitioners, future)*
 - Windows/macOS installer (.exe / .dmg)
 - FastAPI backend bundled with PyInstaller + Electron UI
 - Fully local, works offline, no network dependencies
-- Suitable for single-examiner licensing
 
 **Option 3 — SaaS Cloud** *(optional, future)*
-- Hosted on AWS / Azure / GCP with free tier + paid plans
-- No installation, automatic updates, recurring revenue
+- Hosted on AWS / Azure / GCP
 - More complex GDPR compliance; expect resistance from forensic clients
-- Add as a secondary channel once on-premise is established
+- Secondary channel once on-premise is established
 
 ---
 
 ## Development Roadmap
 
-### Phase 0 — Prerequisites (est. 1–2 months)
+### Phase 0 — Core Module Extraction (1–2 weeks)
 
-- [ ] Replace `ultralytics` with AGPL-free detector (RT-DETR via `transformers`)
-- [ ] Remove `albumentations` from requirements
-- [ ] Choose web stack: **FastAPI** (backend) + **React or Vue** (frontend), or Django full-stack
-- [ ] Choose database: **PostgreSQL** for cases and metadata, **MinIO** (S3-compatible) for image files
-- [ ] Define commercial licensing model
+Branch: `feature/core-modules`
 
-### Phase 1 — MVP (est. 3–4 months)
+Extract AI logic from `grapholab_demo.py` into a shared `core/` package.
+`grapholab_demo.py` remains fully functional throughout — it becomes a thin Gradio wrapper.
+
+Migration order (most independent first):
+
+- [ ] Create `core/__init__.py`
+- [ ] `core/ner.py` — NER pipeline
+- [ ] `core/ocr.py` — TrOCR + EasyOCR
+- [ ] `core/graphology.py` — HOG, LBP, graphological analysis
+- [ ] `core/writer.py` — writer identification
+- [ ] `core/signature.py` — SigNet + YOLO (or RT-DETR)
+- [ ] `core/rag.py` — RAG + Ollama
+- [ ] `core/dating.py` — document dating (uses OCR internally)
+- [ ] `core/pipeline.py` — full forensic pipeline (aggregates all others)
+- [ ] Update `grapholab_demo.py` to import from `core/`
+- [ ] Verify Gradio demo works identically
+- [ ] Replace `ultralytics` with RT-DETR in `core/signature.py`
+- [ ] Remove `albumentations` from `requirements.txt`
+
+### Phase 1 — MVP (6–8 weeks)
+
+Branch: `feature/backend` (from `feature/core-modules`)
 
 Professional core that replaces the Jupyter notebooks.
 
-- **Case management:** create case, upload documents, attach reference samples
-- **4 AI engines** integrated in the UI: HTR, signature verification, signature detection, graphological analysis
-- **User authentication** with roles (admin, examiner, viewer)
-- **Immutable audit log** of every operation (forensic requirement)
-- **PDF report** generated automatically with images, metrics, and legal disclaimer
-- **Deployment:** Docker Compose on-premise, installable in under 10 minutes
+- [ ] FastAPI skeleton + PostgreSQL schema (`users`, `organizations`, `projects`, `documents`, `analyses`, `audit_log`)
+- [ ] JWT authentication (login, logout, refresh, password reset)
+- [ ] Role-based access: admin, examiner, viewer
+- [ ] MinIO integration for document/image storage
+- [ ] CRUD projects per user
+- [ ] 4 AI engines via REST API (HTR, signature verification, signature detection, graphological analysis)
+- [ ] Immutable audit log (forensic requirement — append-only, no UPDATE/DELETE)
+- [ ] PDF report generation (WeasyPrint or ReportLab)
+- [ ] Docker Compose updated with: `postgres`, `minio`, `backend`
 
-### Phase 2 — Mature Product (est. 3–4 months)
+Branch: `feature/frontend` (from `feature/backend`)
 
-- Batch processing: automatic analysis of document archives
-- Multi-sample writer identification with comparative interface
-- Side-by-side sample comparison with annotations
-- Data export (CSV, JSON) for integration with third-party systems
-- AI model updates without reinstallation
-- End-user documentation and examiner manual
+- [ ] React + Tailwind CSS + shadcn/ui scaffold
+- [ ] Auth pages (login, logout, password reset)
+- [ ] Case management dashboard (list, create, delete projects)
+- [ ] Analysis UI for 4 core engines
+- [ ] Report download
+- [ ] Docker Compose updated with: `frontend`
 
-### Phase 3 — Enterprise (est. 4–6 months)
+### Phase 2 — Mature Product (6–8 weeks)
 
-- SSO / LDAP / Active Directory integration
-- Multi-tenancy (multiple organisations on the same instance)
-- Public REST API (for integration with court or banking systems)
-- Fine-tuning on client-proprietary datasets
-- Usage analytics dashboard
-- SLA support agreements and enterprise contracts
+- [ ] Multilingual support (react-i18next): Italian + English
+- [ ] Batch processing (ZIP archive → automatic pipeline → aggregate report)
+- [ ] Side-by-side sample comparison with annotations (Fabric.js or Konva.js)
+- [ ] Full-text search in archived OCR content (PostgreSQL FTS or Meilisearch)
+- [ ] Data export (CSV, JSON) for third-party system integration
+- [ ] AI model updates without reinstallation
+- [ ] End-user documentation and examiner manual
+
+### Phase 3 — Enterprise (variable)
+
+- [ ] SSO / LDAP / Active Directory integration (Keycloak)
+- [ ] Multi-tenancy (multiple organisations on the same instance)
+- [ ] Public REST API with OpenAPI docs (FastAPI auto-generates this)
+- [ ] Fine-tuning interface for client-proprietary datasets
+- [ ] Usage analytics dashboard for admins
+- [ ] SLA support agreements
 
 ---
 
-## Recommended Technology Stack
+## Technology Stack
 
 | Layer | Technology | Notes |
 |---|---|---|
 | AI / ML | PyTorch, Transformers, OpenCV | Unchanged from labs |
+| Shared AI package | `core/` (new) | Reused by Gradio demo and FastAPI |
 | Backend API | FastAPI | Async, automatic OpenAPI docs |
-| Frontend | React + Tailwind CSS | or Vue 3 |
+| Frontend | React + Tailwind CSS + shadcn/ui | Professional components |
 | Database | PostgreSQL | Cases, users, audit log |
 | File storage | MinIO (S3-compatible) | Documents and images, on-premise |
-| Auth | JWT + bcrypt | or Keycloak for enterprise SSO |
+| Auth | JWT + bcrypt | Keycloak for enterprise SSO (Phase 3) |
 | PDF reports | WeasyPrint or ReportLab | Forensic report generation |
+| i18n | react-i18next | Italian + English (Phase 2) |
+| Annotations | Fabric.js or Konva.js | Interactive image annotation (Phase 2) |
 | Container | Docker Compose | Extend existing setup |
 | CI/CD | GitHub Actions | Build, test, automated releases |
 
 ---
 
-## Licensing Model for the Product
+## Licensing Model
 
 ### Recommended: Open-Core
 
@@ -158,8 +231,6 @@ Professional core that replaces the Jupyter notebooks.
 | **Professional** | Commercial, closed source | Examiners, law firms |
 | **Enterprise** | Commercial + SLA contract | Courts, banks, government |
 
-**Rationale:** A Community Edition on GitHub maximises visibility and builds reputation in the forensic and AI communities. Professional and Enterprise tiers generate revenue through case management, reporting, audit logging, and support — features that matter to paying clients but are overkill for the open-source demo use case.
-
 ### Customer pricing (indicative)
 
 | Plan | Target | Model |
@@ -168,13 +239,3 @@ Professional core that replaces the Jupyter notebooks.
 | **Studio** | 2–10 users | Annual licence per user |
 | **Enterprise** | Courts, banks | Contract + SLA + fine-tuning |
 | **SaaS** *(future)* | Small firms | Monthly subscription / pay-per-use |
-
----
-
-## Open Questions for Future Decisions
-
-- Confirm that RT-DETR (or alternative) covers the Lab 04 signature detection use case adequately
-- Verify Ultralytics Enterprise License pricing if Option B is preferred over Option A
-- Decide frontend framework (React vs Vue) before starting Phase 1
-- Assess whether a UX/UI designer is needed for the case management interface
-- Evaluate whether to seek grant funding (EU Horizon, PNRR) for forensic AI tooling

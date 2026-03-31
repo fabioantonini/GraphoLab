@@ -27,273 +27,43 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 import io
-import requests as _requests
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import cv2
-import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torchvision.transforms as T
+import tempfile as _tempfile
+import threading as _threading
+from datetime import datetime as _datetime
+
 import gradio as gr
-from collections import OrderedDict
-from PIL import Image, ImageDraw, ImageFont, ImageOps
-from skimage import filters, transform as sk_transform
-from skimage.feature import hog, local_binary_pattern
-from sklearn.svm import SVC
-from sklearn.preprocessing import LabelEncoder, StandardScaler
-from sklearn.pipeline import Pipeline
-from transformers import TrOCRProcessor, VisionEncoderDecoderModel, pipeline as hf_pipeline
-from ultralytics import YOLO
-from huggingface_hub import hf_hub_download
+import numpy as np
+from PIL import Image
+
+# ── core imports ──────────────────────────────────────────────────────────────
+from core.ocr import htr_transcribe, get_easyocr
+from core.ner import ner_extract
+from core.graphology import grapho_analyse
+from core.writer import writer_identify, ensure_writer_examples
+from core.signature import sig_verify, sig_detect, detect_and_crop
+from core.dating import dating_rank as _dating_rank_core, extract_dates
+from core.pipeline import run_pipeline_steps, generate_forensic_pdf, PipelineResults
+from core.rag import (
+    check_ollama, ollama_list_models, set_rag_model,
+    rag_load_docs, rag_add_docs, rag_remove_doc,
+    rag_doc_list as _rag_doc_list, rag_doc_choices as _rag_doc_choices,
+    rag_chat_stream, _rag_ready,
+)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Configuration
 # ──────────────────────────────────────────────────────────────────────────────
 
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-TROCR_MODEL = "microsoft/trocr-large-handwritten"
-YOLO_REPO = "tech4humans/yolov8s-signature-detector"
-YOLO_FILENAME = "yolov8s.pt"
-SIG_THRESHOLD = 0.35  # cosine distance threshold for signature verification
-NER_MODEL = "Babelscape/wikineural-multilingual-ner"
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Lazy model loaders (loaded on first use to avoid memory duplication)
-# ──────────────────────────────────────────────────────────────────────────────
-
-_trocr_processor = None
-_trocr_model = None
-_easyocr_reader = None
-_yolo_model = None
-_ner_pipeline = None
-_writer_clf = None
-_writer_le = None
-_writer_X_scaled = None       # scaled training features for open-set distance check
-_writer_dist_threshold = None  # auto-calibrated rejection threshold
-import threading as _threading
-import hashlib as _hashlib
-import json as _json
-import tempfile as _tempfile
-_writer_lock = _threading.Lock()
-
-# ── RAG / Ollama ──────────────────────────────────────────────────────────────
-OLLAMA_URL = "http://localhost:11434"
-OLLAMA_MODEL = "llama3.2"  # default / fallback
-_embed_model = OLLAMA_MODEL  # embedding model — fixed (changing it invalidates cache)
-_rag_model = OLLAMA_MODEL   # generation model — selectable via UI
-_rag_chunks: list = []   # [{"text": str, "source": str, "emb": np.ndarray}]
-_rag_indexed_files: set = set()  # filenames already indexed via upload
-_rag_ready = False
-_rag_lock = _threading.Lock()
-_RAG_CACHE_DIR = ROOT / "data" / "rag_cache"
-
-# Check Ollama availability at startup (used to show/hide the unavailability banner)
-def _check_ollama() -> bool:
-    try:
-        _requests.get(f"{OLLAMA_URL}/api/tags", timeout=3)
-        return True
-    except Exception:
-        return False
-
-_OLLAMA_AVAILABLE = _check_ollama()
-
-
-def get_trocr():
-    global _trocr_processor, _trocr_model
-    if _trocr_processor is None:
-        print("Loading TrOCR...")
-        _trocr_processor = TrOCRProcessor.from_pretrained(TROCR_MODEL)
-        _trocr_model = VisionEncoderDecoderModel.from_pretrained(TROCR_MODEL).to(DEVICE)
-        _trocr_model.eval()
-    return _trocr_processor, _trocr_model
-
-
-def get_easyocr():
-    global _easyocr_reader
-    if _easyocr_reader is None:
-        import easyocr
-        print("Loading EasyOCR (Italian)...")
-        _easyocr_reader = easyocr.Reader(["it", "en"], gpu=DEVICE == "cuda")
-    return _easyocr_reader
-
-
-def get_ner():
-    global _ner_pipeline
-    if _ner_pipeline is None:
-        print("Loading NER model...")
-        _ner_pipeline = hf_pipeline(
-            "ner",
-            model=NER_MODEL,
-            aggregation_strategy="simple",
-            device=0 if DEVICE == "cuda" else -1,
-        )
-    return _ner_pipeline
-
-
-def get_yolo():
-    global _yolo_model
-    if _yolo_model is None:
-        print("Loading YOLOv8 signature detector...")
-        hf_token = os.environ.get("HF_TOKEN")
-        model_path = hf_hub_download(
-            repo_id=YOLO_REPO, filename=YOLO_FILENAME, token=hf_token
-        )
-        _yolo_model = YOLO(model_path)
-    return _yolo_model
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# SigNet (sigver architecture — Hafemann et al. 2017)
-# ──────────────────────────────────────────────────────────────────────────────
-
 SIGNET_WEIGHTS = ROOT / "models" / "signet.pth"
-SIGNET_CANVAS  = (952, 1360)   # max signature canvas for preprocessing
+WRITER_SAMPLES_DIR = ROOT / "data" / "samples"
+WRITER_EXAMPLES_DIR = WRITER_SAMPLES_DIR / "writer_examples"
+RAG_CACHE_DIR = ROOT / "data" / "rag_cache"
 
-
-def _conv_bn_relu(in_ch, out_ch, kernel, stride=1, pad=0):
-    return nn.Sequential(OrderedDict([
-        ("conv", nn.Conv2d(in_ch, out_ch, kernel, stride, pad, bias=False)),
-        ("bn",   nn.BatchNorm2d(out_ch)),
-        ("relu", nn.ReLU()),
-    ]))
-
-
-def _linear_bn_relu(in_f, out_f):
-    return nn.Sequential(OrderedDict([
-        ("fc",   nn.Linear(in_f, out_f, bias=False)),
-        ("bn",   nn.BatchNorm1d(out_f)),
-        ("relu", nn.ReLU()),
-    ]))
-
-
-class SigNet(nn.Module):
-    """SigNet feature extractor (sigver re-implementation, output: 2048-d L2-normalised)."""
-    def __init__(self):
-        super().__init__()
-        self.conv_layers = nn.Sequential(OrderedDict([
-            ("conv1",    _conv_bn_relu(1, 96, 11, stride=4)),
-            ("maxpool1", nn.MaxPool2d(3, 2)),
-            ("conv2",    _conv_bn_relu(96, 256, 5, pad=2)),
-            ("maxpool2", nn.MaxPool2d(3, 2)),
-            ("conv3",    _conv_bn_relu(256, 384, 3, pad=1)),
-            ("conv4",    _conv_bn_relu(384, 384, 3, pad=1)),
-            ("conv5",    _conv_bn_relu(384, 256, 3, pad=1)),
-            ("maxpool3", nn.MaxPool2d(3, 2)),
-        ]))
-        self.fc_layers = nn.Sequential(OrderedDict([
-            ("fc1", _linear_bn_relu(256 * 3 * 5, 2048)),
-            ("fc2", _linear_bn_relu(2048, 2048)),
-        ]))
-
-    def forward_once(self, x):
-        x = self.conv_layers(x)
-        x = x.view(x.size(0), 256 * 3 * 5)
-        x = self.fc_layers(x)
-        return F.normalize(x, p=2, dim=1)
-
-
-_signet = None
-_signet_pretrained = False
-
-
-def get_signet():
-    global _signet, _signet_pretrained
-    if _signet is None:
-        model = SigNet().to(DEVICE).eval()
-        if SIGNET_WEIGHTS.exists():
-            state_dict, _, _ = torch.load(SIGNET_WEIGHTS, map_location=DEVICE)
-            model.load_state_dict(state_dict)
-            _signet_pretrained = True
-            print("SigNet: loaded pre-trained weights from", SIGNET_WEIGHTS)
-        else:
-            print("SigNet: no pre-trained weights found — using random initialisation.")
-        _signet = model
-    return _signet
-
-
-def preprocess_signature(pil_img: Image.Image) -> torch.Tensor:
-    """Sigver-compatible preprocessing: centre on canvas, invert, resize to 150×220."""
-    arr = np.array(pil_img.convert("L"), dtype=np.uint8)
-
-    # Centre on canvas
-    canvas = np.ones(SIGNET_CANVAS, dtype=np.uint8) * 255
-    try:
-        threshold = filters.threshold_otsu(arr)
-        blurred   = filters.gaussian(arr, 2, preserve_range=True)
-        binary    = blurred > threshold
-        rows, cols = np.where(binary == 0)
-        if len(rows) == 0:
-            raise ValueError("empty")
-        cropped   = arr[rows.min():rows.max(), cols.min():cols.max()]
-        r_center  = int(rows.mean() - rows.min())
-        c_center  = int(cols.mean() - cols.min())
-        r_start   = max(0, SIGNET_CANVAS[0] // 2 - r_center)
-        c_start   = max(0, SIGNET_CANVAS[1] // 2 - c_center)
-        h = min(cropped.shape[0], SIGNET_CANVAS[0] - r_start)
-        w = min(cropped.shape[1], SIGNET_CANVAS[1] - c_start)
-        canvas[r_start:r_start + h, c_start:c_start + w] = cropped[:h, :w]
-        canvas[canvas > threshold] = 255
-    except Exception:
-        canvas = arr  # fallback: use image as-is
-
-    # Invert and resize to 150×220
-    inverted = 255 - canvas
-    resized  = sk_transform.resize(inverted, (150, 220), preserve_range=True,
-                                   anti_aliasing=True).astype(np.uint8)
-    tensor   = torch.from_numpy(resized).float().div(255)
-    return tensor.unsqueeze(0).unsqueeze(0).to(DEVICE)  # (1, 1, 150, 220)
-
+_OLLAMA_AVAILABLE = check_ollama()
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Tab 1 — Handwritten OCR
 # ──────────────────────────────────────────────────────────────────────────────
-
-def _preprocess_for_htr(image: np.ndarray) -> np.ndarray:
-    """Light preprocessing: deskew + contrast enhancement, keeping grayscale gradients
-    so EasyOCR's CRNN recogniser retains letter-shape information."""
-    import cv2
-
-    # 1. Grayscale
-    if image.ndim == 3:
-        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-    else:
-        gray = image.copy()
-
-    # 2. Deskew via minAreaRect on ink pixels
-    _, bw = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    coords = np.column_stack(np.where(bw > 0))
-    if len(coords) > 100:
-        angle = cv2.minAreaRect(coords)[-1]
-        if angle < -45:
-            angle = 90 + angle
-        else:
-            angle = -angle
-        if abs(angle) > 0.3:
-            (h, w) = gray.shape
-            M = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
-            gray = cv2.warpAffine(gray, M, (w, h),
-                                  flags=cv2.INTER_CUBIC,
-                                  borderMode=cv2.BORDER_REPLICATE)
-
-    # 3. CLAHE contrast enhancement (adaptive, preserves gradients)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    enhanced = clahe.apply(gray)
-
-    # 4. Back to 3-channel for EasyOCR
-    return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
-
-
-def htr_transcribe(image: np.ndarray) -> str:
-    if image is None:
-        return "Carica un'immagine di testo manoscritto."
-    reader = get_easyocr()
-    processed = _preprocess_for_htr(image)
-    results = reader.readtext(processed, detail=0, paragraph=True)
-    return "\n".join(results)
-
 
 htr_tab = gr.Interface(
     fn=htr_transcribe,
@@ -337,108 +107,8 @@ def _sig_ex(name: str) -> str | None:
     return str(p) if p.exists() else None
 
 
-def sig_verify(
-    ref_image: np.ndarray,
-    ref_image2: np.ndarray | None,
-    query_image: np.ndarray,
-) -> tuple[str, np.ndarray | None]:
-    if ref_image is None or query_image is None:
-        return "Carica la firma di riferimento e quella da verificare.", None
-
-    model = get_signet()
-
-    with torch.no_grad():
-        emb_ref1 = model.forward_once(preprocess_signature(Image.fromarray(ref_image)))
-        if ref_image2 is not None:
-            emb_ref2 = model.forward_once(preprocess_signature(Image.fromarray(ref_image2)))
-            mean_ref = F.normalize(emb_ref1 + emb_ref2, p=2, dim=1)
-            n_refs = 2
-        else:
-            mean_ref = emb_ref1
-            n_refs = 1
-        emb_query = model.forward_once(preprocess_signature(Image.fromarray(query_image)))
-
-    cosine_sim = F.cosine_similarity(mean_ref, emb_query).item()
-    cosine_dist = 1.0 - cosine_sim
-    verdict = "AUTENTICA ✓" if cosine_dist < SIG_THRESHOLD else "FALSA ✗"
-    color = "#2ca02c" if cosine_dist < SIG_THRESHOLD else "#d62728"
-
-    weights_note = (
-        "Modello: SigNet — pesi pre-addestrati GPDS (luizgh/sigver)."
-        if _signet_pretrained else
-        "⚠️ ATTENZIONE: pesi casuali — risultati non significativi.\n"
-        "Scarica signet.pth da luizgh/sigver e posizionalo in models/signet.pth."
-    )
-    report = (
-        f"Esito: {verdict}\n"
-        f"Similarità coseno: {cosine_sim:.4f}\n"
-        f"Distanza coseno:   {cosine_dist:.4f}  (soglia: {SIG_THRESHOLD})\n"
-        f"Riferimenti usati: {n_refs}"
-        + (" (embedding mediato)" if n_refs > 1 else "") + "\n\n"
-        + weights_note
-    )
-
-    # ── Matplotlib visualisation ──────────────────────────────────────────────
-    n_img_panels = 2 + (1 if ref_image2 is not None else 0)
-    width_ratios = ([1] * n_img_panels) + [1.4]
-    fig, axes = plt.subplots(
-        1, n_img_panels + 1,
-        figsize=(3.2 * (n_img_panels + 1), 3.2),
-        gridspec_kw={"width_ratios": width_ratios},
-    )
-
-    panels = [ref_image]
-    labels = ["Rif. 1"]
-    if ref_image2 is not None:
-        panels.append(ref_image2)
-        labels.append("Rif. 2")
-    panels.append(query_image)
-    labels.append("Da verificare")
-
-    for ax, img, lbl in zip(axes[:-1], panels, labels):
-        ax.imshow(img, cmap="gray" if img.ndim == 2 else None)
-        ax.set_title(lbl, fontsize=10)
-        ax.axis("off")
-
-    # Gauge panel
-    ax_g = axes[-1]
-    ax_g.set_xlim(0, 1)
-    ax_g.set_ylim(0, 1)
-    ax_g.axis("off")
-
-    # Verdict text
-    ax_g.text(0.5, 0.82, verdict, ha="center", va="center",
-              fontsize=14, fontweight="bold", color=color,
-              transform=ax_g.transAxes)
-
-    # Gauge bar (distance from 0 to 1)
-    bar_ax = fig.add_axes([
-        axes[-1].get_position().x0 + 0.01,
-        axes[-1].get_position().y0 + 0.12,
-        axes[-1].get_position().width - 0.02,
-        0.18,
-    ])
-    bar_ax.barh([0], [cosine_dist], color=color, alpha=0.75, height=0.6)
-    bar_ax.barh([0], [1.0 - cosine_dist], left=cosine_dist,
-                color="#cccccc", alpha=0.4, height=0.6)
-    bar_ax.axvline(SIG_THRESHOLD, color="black", linestyle="--", linewidth=1.2)
-    bar_ax.set_xlim(0, 1)
-    bar_ax.set_ylim(-0.5, 0.5)
-    bar_ax.set_yticks([])
-    bar_ax.set_xticks([0, SIG_THRESHOLD, 1])
-    bar_ax.set_xticklabels(["0", f"soglia\n{SIG_THRESHOLD}", "1"], fontsize=7)
-    bar_ax.set_xlabel(f"Distanza coseno: {cosine_dist:.3f}", fontsize=8)
-
-    plt.suptitle("Verifica Autenticità Firma — SigNet", fontsize=11, fontweight="bold")
-    plt.tight_layout()
-
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=130, bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
-    chart = np.array(Image.open(buf))
-
-    return report, chart
+def _sig_verify_wrapper(ref_image, ref_image2, query_image):
+    return sig_verify(ref_image, ref_image2, query_image, SIGNET_WEIGHTS)
 
 
 _sig_examples = []
@@ -447,13 +117,13 @@ for _n in ["1", "2", "3"]:
     _r2 = _sig_ex(f"genuine_{_n}_2.png")
     _forg = _sig_ex(f"forged_{_n}_1.png")
     if _r1 and _r2 and _forg:
-        _sig_examples.append([_r1, _r2, _forg])       # FALSA con 2 refs
+        _sig_examples.append([_r1, _r2, _forg])
     if _n == "1" and _r1 and _r2:
-        _sig_examples.append([_r1, None, _r2])         # AUTENTICA con 1 ref
+        _sig_examples.append([_r1, None, _r2])
 
 
 sig_verify_tab = gr.Interface(
-    fn=sig_verify,
+    fn=_sig_verify_wrapper,
     inputs=[
         gr.Image(label="Firma di riferimento 1 (autentica nota)", type="numpy"),
         gr.Image(label="Firma di riferimento 2 — opzionale (migliora l'accuratezza)", type="numpy"),
@@ -496,57 +166,6 @@ sig_verify_tab = gr.Interface(
 # Tab 3 — Signature Detection
 # ──────────────────────────────────────────────────────────────────────────────
 
-def sig_detect(image: np.ndarray, conf_threshold: float) -> tuple[np.ndarray, str]:
-    if image is None:
-        return image, "Carica un'immagine del documento."
-    try:
-        yolo = get_yolo()
-    except Exception as e:
-        msg = (
-            "⚠️ **Modello non disponibile.**\n\n"
-            "Il modello `tech4humans/yolov8s-signature-detector` è ad accesso limitato su Hugging Face.\n\n"
-            "**Per abilitare questa sezione:**\n"
-            "1. Crea un account su huggingface.co\n"
-            "2. Richiedi l'accesso su huggingface.co/tech4humans/yolov8s-signature-detector\n"
-            "3. Crea un token su huggingface.co/settings/tokens\n"
-            "4. Imposta la variabile d'ambiente `HF_TOKEN=<il_tuo_token>` prima di avviare l'app\n\n"
-            f"Errore: {e}"
-        )
-        return image, msg
-    pil_img = Image.fromarray(image).convert("RGB")
-
-    # Save to temp file for YOLO
-    import tempfile
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-        pil_img.save(tmp.name)
-        tmp_path = tmp.name
-
-    results = yolo.predict(tmp_path, conf=conf_threshold, verbose=False)
-    os.unlink(tmp_path)
-
-    result = results[0]
-    annotated = image.copy()
-    count = 0
-
-    if result.boxes is not None:
-        for box in result.boxes:
-            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
-            conf = float(box.conf[0].cpu())
-            cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 0, 0), 2)
-            cv2.putText(annotated, f"Sig #{count+1}  {conf:.0%}",
-                        (x1, max(y1 - 8, 0)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
-            count += 1
-
-    summary = (
-        f"Rilevat{'a' if count == 1 else 'e'} {count} firma{'' if count == 1 else 'e'} "
-        f"(confidenza ≥ {conf_threshold:.0%})\n\n"
-        f"**Modello:** `tech4humans/yolov8s-signature-detector`\n"
-        f"**Uso forense:** Estrazione automatica di firme da documenti legali."
-    )
-    return annotated, summary
-
-
 sig_detect_tab = gr.Interface(
     fn=sig_detect,
     inputs=[
@@ -587,41 +206,6 @@ sig_detect_tab = gr.Interface(
 # ──────────────────────────────────────────────────────────────────────────────
 # Tab 4 — Named Entity Recognition
 # ──────────────────────────────────────────────────────────────────────────────
-
-_NER_LABELS = {"PER": "Persona", "ORG": "Organizzazione", "LOC": "Luogo", "MISC": "Varie"}
-
-
-def ner_extract(text: str):
-    if not text or not text.strip():
-        return [], "Inserisci del testo da analizzare."
-    nlp = get_ner()
-    entities = nlp(text)
-
-    # Build HighlightedText format: list of (span, label|None)
-    result = []
-    prev_end = 0
-    for ent in entities:
-        start, end = ent["start"], ent["end"]
-        if start > prev_end:
-            result.append((text[prev_end:start], None))
-        result.append((text[start:end], ent["entity_group"]))
-        prev_end = end
-    if prev_end < len(text):
-        result.append((text[prev_end:], None))
-
-    # Summary table
-    if entities:
-        rows = "\n".join(
-            f"| **{_NER_LABELS.get(e['entity_group'], e['entity_group'])}** "
-            f"(`{e['entity_group']}`) | {e['word']} | {e['score']:.0%} |"
-            for e in entities
-        )
-        summary = f"| Tipo | Entità | Confidenza |\n|------|--------|------------|\n{rows}"
-    else:
-        summary = "Nessuna entità trovata."
-
-    return result, summary
-
 
 ner_tab = gr.Interface(
     fn=ner_extract,
@@ -679,341 +263,19 @@ ner_tab = gr.Interface(
 # Tab 5 — Writer Identification
 # ──────────────────────────────────────────────────────────────────────────────
 
-WRITER_IMG_SIZE = (128, 256)   # (H, W) for feature extraction
-_WRITER_SAMPLES_DIR = ROOT / "data" / "samples"
-_WRITER_EXAMPLES_DIR = ROOT / "data" / "samples" / "writer_examples"
-
-_WRITER_NAMES = {
-    0: "Scrittore A",
-    1: "Scrittore B",
-    2: "Scrittore C",
-    3: "Scrittore D",
-    4: "Scrittore E",
-}
+_writer_example_paths = ensure_writer_examples(WRITER_EXAMPLES_DIR)
+_threading.Thread(
+    target=lambda: writer_identify(None, WRITER_SAMPLES_DIR),  # pre-warm (returns early on None)
+    daemon=True,
+).start()
 
 
-def _make_synthetic_writer(writer_id: int, sample_id: int) -> Image.Image:
-    """Generate a synthetic handwriting sample using system TTF fonts."""
-    rng = np.random.default_rng(writer_id * 1000 + sample_id)
-
-    _FONTS_DIR = Path("C:/Windows/Fonts")
-    # Each writer gets a distinct handwriting font + base size
-    _WRITER_FONTS = [
-        ("Inkfree.ttf",  19),   # Writer 0 — Ink Free (corsivo informale)
-        ("LHANDW.TTF",   17),   # Writer 1 — Lucida Handwriting (elegante)
-        ("segoepr.ttf",  18),   # Writer 2 — Segoe Print (stampatello mano)
-        ("segoesc.ttf",  16),   # Writer 3 — Segoe Script (corsivo moderno)
-        ("comic.ttf",    18),   # Writer 4 — Comic Sans (tondo informale)
-    ]
-    font_name, base_size = _WRITER_FONTS[writer_id % len(_WRITER_FONTS)]
-    font_size = base_size + int(rng.integers(-1, 2))
-    try:
-        font = ImageFont.truetype(str(_FONTS_DIR / font_name), font_size)
-    except Exception:
-        font = ImageFont.load_default()
-
-    # Ink darkness: each writer has a characteristic pen pressure
-    ink_value = int([25, 15, 35, 20, 30][writer_id % 5] + rng.integers(-5, 6))
-
-    _SENTENCES = [
-        "il gatto dorme sul tetto",
-        "la casa è piccola e bella",
-        "oggi il cielo è molto blu",
-        "scrivere a mano è un'arte",
-        "ogni persona ha uno stile",
-        "il sole tramonta a ovest",
-        "leggo un libro ogni sera",
-        "la penna scorre sul foglio",
-        "le parole raccontano storie",
-        "questo è un campione scritto",
-    ]
-    lines = [
-        _SENTENCES[(writer_id * 3 + sample_id + i) % len(_SENTENCES)]
-        for i in range(3)
-    ]
-
-    w, h = 320, 140
-    img = Image.new("L", (w, h), 255)
-    draw = ImageDraw.Draw(img)
-
-    line_gap = font_size + 12 + int(rng.integers(-2, 3))
-    y = 10
-    for line in lines:
-        x = 8 + int(rng.integers(-3, 4))
-        draw.text((x, y), line, fill=ink_value, font=font)
-        y += line_gap
-
-    # Slight rotation simulates unaligned paper
-    angle = float(rng.uniform(-1.5, 1.5))
-    img = img.rotate(angle, fillcolor=255, expand=False)
-
-    return img
-
-
-def _preprocess_writer_img(pil_img: Image.Image) -> np.ndarray:
-    """Convert PIL image to normalised grayscale array of WRITER_IMG_SIZE.
-
-    For portrait documents (full page), extracts a representative landscape
-    crop from the text body before resizing, preserving stroke-level features
-    that the model was trained on (word-level 320×140 samples).
-    """
-    gray = pil_img.convert("L")
-    w, h = gray.size
-    # If image is portrait, take a landscape crop from the upper text body
-    # (avoids distorting full-page documents when resizing to landscape target)
-    target_ratio = WRITER_IMG_SIZE[1] / WRITER_IMG_SIZE[0]  # 256/128 = 2.0
-    if h > w:
-        crop_h = int(w / target_ratio)
-        top = h // 6  # skip top margin, start from first text lines
-        top = min(top, max(0, h - crop_h))
-        gray = gray.crop((0, top, w, top + crop_h))
-    arr = np.array(gray, dtype=np.float32)
-    # OTSU threshold → invert so ink=1, bg=0
-    thresh = filters.threshold_otsu(arr) if arr.std() > 1 else 128.0
-    binary = (arr < thresh).astype(np.float32)
-    # Resize
-    resized = sk_transform.resize(binary, WRITER_IMG_SIZE, anti_aliasing=True)
-    return resized.astype(np.float32)
-
-
-def _extract_writer_features(pil_img: Image.Image) -> np.ndarray:
-    """Extract HOG + LBP + run-length features for writer identification."""
-    arr = _preprocess_writer_img(pil_img)
-    arr8 = (arr * 255).astype(np.uint8)
-
-    # HOG features
-    hog_feats = hog(
-        arr,
-        orientations=9,
-        pixels_per_cell=(16, 16),
-        cells_per_block=(2, 2),
-        feature_vector=True,
-    )
-
-    # LBP histogram (26 uniform bins)
-    lbp = local_binary_pattern(arr8, P=24, R=3, method="uniform")
-    lbp_hist, _ = np.histogram(lbp, bins=26, range=(0, 26), density=True)
-
-    # Run-length statistics (horizontal & vertical)
-    def _run_stats(binary_row):
-        runs = []
-        cnt = 0
-        for v in binary_row:
-            if v > 0.5:
-                cnt += 1
-            elif cnt > 0:
-                runs.append(cnt)
-                cnt = 0
-        if cnt > 0:
-            runs.append(cnt)
-        return runs
-
-    h_runs = []
-    for row in arr:
-        h_runs.extend(_run_stats(row))
-    v_runs = []
-    for col in arr.T:
-        v_runs.extend(_run_stats(col))
-
-    h_arr = np.array(h_runs, dtype=np.float32) if h_runs else np.array([0.0])
-    v_arr = np.array(v_runs, dtype=np.float32) if v_runs else np.array([0.0])
-    run_feats = np.array([
-        h_arr.mean(), h_arr.std(), h_arr.max(),
-        v_arr.mean(), v_arr.std(), v_arr.max(),
-    ], dtype=np.float32)
-
-    return np.concatenate([hog_feats, lbp_hist, run_feats])
-
-
-def _load_real_writer_samples() -> tuple[list[np.ndarray], list[str]] | None:
-    """Load samples from data/samples/writer_XX/sample_YY.png directories."""
-    writer_dirs = sorted(_WRITER_SAMPLES_DIR.glob("writer_??"))
-    if len(writer_dirs) < 2:
-        return None
-    X, y = [], []
-    for wd in writer_dirs:
-        samples = sorted(wd.glob("sample_*.png"))
-        if len(samples) < 3:
-            continue
-        for sp in samples:
-            try:
-                img = Image.open(sp)
-                X.append(_extract_writer_features(img))
-                y.append(wd.name)
-            except Exception:
-                pass
-    if len(set(y)) < 2:
-        return None
-    return X, y
-
-
-def _get_writer_model():
-    """Return (Pipeline, LabelEncoder), training lazily on first call.
-
-    Thread-safe: if the background pre-warm thread is still running when the
-    pipeline reaches step 4, this call blocks until training finishes rather
-    than spawning a duplicate training job.
-    """
-    global _writer_clf, _writer_le
-    if _writer_clf is not None:          # fast path — no lock needed
-        return _writer_clf, _writer_le
-    with _writer_lock:                   # only one thread trains at a time
-        if _writer_clf is not None:      # re-check after acquiring lock
-            return _writer_clf, _writer_le
-        print("Training writer identification model...")
-
-    real = _load_real_writer_samples()
-    if real is not None:
-        X_raw, y_raw = real
-        labels = y_raw
-    else:
-        # Synthetic fallback: 5 writers × 10 samples
-        X_raw, labels = [], []
-        for wid in range(5):
-            for sid in range(10):
-                img = _make_synthetic_writer(wid, sid)
-                X_raw.append(_extract_writer_features(img))
-                labels.append(_WRITER_NAMES[wid])
-
-    le = LabelEncoder()
-    y_enc = le.fit_transform(labels)
-    X = np.array(X_raw)
-
-    clf = Pipeline([
-        ("scaler", StandardScaler()),
-        ("svc", SVC(kernel="rbf", C=10, gamma="scale", probability=True)),
-    ])
-    clf.fit(X, y_enc)
-
-    # Open-set calibration: compute max intra-class nearest-neighbour distance
-    # in the scaled feature space, then use 2× as the rejection threshold.
-    global _writer_X_scaled, _writer_dist_threshold
-    X_scaled = clf.named_steps["scaler"].transform(X)
-    max_intra = 0.0
-    for cls in np.unique(y_enc):
-        Xc = X_scaled[y_enc == cls]
-        if len(Xc) < 2:
-            continue
-        diff = Xc[:, np.newaxis, :] - Xc[np.newaxis, :, :]
-        dists = np.sqrt((diff ** 2).sum(axis=2))
-        np.fill_diagonal(dists, np.inf)
-        max_intra = max(max_intra, dists.min(axis=1).max())
-    _writer_X_scaled = X_scaled
-    _writer_dist_threshold = max_intra * 2.0
-
-    _writer_clf = clf
-    _writer_le = le
-    print(f"Writer model ready — {len(le.classes_)} writers, {len(X)} samples. "
-          f"Rejection threshold: {_writer_dist_threshold:.3f}")
-    return _writer_clf, _writer_le
-
-
-def _ensure_writer_examples() -> list[str]:
-    """Pre-generate example images for the Gradio examples list."""
-    _WRITER_EXAMPLES_DIR.mkdir(parents=True, exist_ok=True)
-    paths = []
-    for wid in range(5):
-        p = _WRITER_EXAMPLES_DIR / f"writer_{wid}_example.png"
-        if not p.exists():
-            img = _make_synthetic_writer(wid, sample_id=99)
-            img.save(str(p))
-        paths.append(str(p))
-    return paths
-
-
-_writer_example_paths = _ensure_writer_examples()
-
-# Pre-warm writer model in background so step 4 of pipeline is instant
-_threading.Thread(target=_get_writer_model, daemon=True).start()
-
-
-def writer_identify(image: np.ndarray) -> tuple[str, np.ndarray]:
-    if image is None:
-        return "Carica un'immagine di testo manoscritto.", None
-    try:
-        clf, le = _get_writer_model()
-    except Exception as e:
-        return f"Errore nel caricamento del modello: {e}", None
-
-    pil_img = Image.fromarray(image)
-    try:
-        feat = _extract_writer_features(pil_img)
-    except Exception as e:
-        return f"Errore nell'estrazione delle caratteristiche: {e}", None
-
-    proba = clf.predict_proba([feat])[0]
-    order = np.argsort(proba)[::-1]
-    names = le.inverse_transform(order)
-    scores = proba[order]
-
-    # Open-set check: nearest-neighbour distance in scaled feature space
-    is_unknown = False
-    if _writer_X_scaled is not None and _writer_dist_threshold is not None:
-        feat_scaled = clf.named_steps["scaler"].transform([feat])[0]
-        min_dist = np.linalg.norm(_writer_X_scaled - feat_scaled, axis=1).min()
-        is_unknown = min_dist > _writer_dist_threshold
-
-    # Markdown report
-    rows = "\n".join(
-        f"| {'🥇' if i == 0 else '🥈' if i == 1 else '🥉' if i == 2 else '  '} "
-        f"**{name}** | {score:.1%} |"
-        for i, (name, score) in enumerate(zip(names, scores))
-    )
-    if is_unknown:
-        report = (
-            "**⚠️ Scrittore non identificato nel database**\n\n"
-            "La scrittura analizzata non corrisponde a nessuno degli scrittori noti. "
-            "Le probabilità di seguito hanno valore puramente indicativo "
-            "e **non devono essere usate per un'attribuzione**.\n\n"
-            "| Candidato | Probabilità (riferimento) |\n"
-            "|-----------|---------------------------|\n"
-            + rows
-            + "\n\n*La distanza dal campione più simile nel database supera la soglia "
-              "di affidabilità. Aggiungere campioni dello scrittore al database per "
-              "un confronto diretto.*"
-        )
-    else:
-        report = (
-            "**Identificazione Scrittore — Risultati**\n\n"
-            "| Candidato | Probabilità |\n"
-            "|-----------|-------------|\n"
-            + rows
-            + "\n\n*I risultati si basano su caratteristiche HOG + LBP + statistiche dei tratti.*"
-        )
-    if _load_real_writer_samples() is None:
-        report += (
-            "\n\n⚠️ *Dati sintetici: il modello è addestrato su scritture generate "
-            "artificialmente. Per risultati forensi reali, popola `data/samples/writer_XX/`.*"
-        )
-
-    # Bar chart
-    fig, ax = plt.subplots(figsize=(5, max(2.5, len(names) * 0.55)))
-    if is_unknown:
-        colors = ["#aaaaaa"] * len(names)
-        chart_title = "Scrittore non nel database — solo riferimento"
-    else:
-        colors = ["#1B3A6B" if i == 0 else "#C8973A" if i == 1 else "#9eb8e0"
-                  for i in range(len(names))]
-        chart_title = "Probabilità per scrittore"
-    ax.barh(names[::-1], scores[::-1] * 100, color=colors[::-1])
-    ax.set_xlabel("Probabilità (%)")
-    ax.set_xlim(0, 105)
-    ax.set_title(chart_title)
-    for i, (name, score) in enumerate(zip(names[::-1], scores[::-1])):
-        ax.text(score * 100 + 1, i, f"{score:.1%}", va="center", fontsize=9)
-    plt.tight_layout()
-
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=120)
-    plt.close(fig)
-    buf.seek(0)
-    chart_arr = np.array(Image.open(buf))
-
-    return report, chart_arr
+def _writer_identify_wrapper(image):
+    return writer_identify(image, WRITER_SAMPLES_DIR)
 
 
 writer_tab = gr.Interface(
-    fn=writer_identify,
+    fn=_writer_identify_wrapper,
     inputs=gr.Image(label="Campione di scrittura a mano da attribuire", type="numpy"),
     outputs=[
         gr.Markdown(label="Candidati ordinati per probabilità"),
@@ -1051,89 +313,6 @@ writer_tab = gr.Interface(
 # ──────────────────────────────────────────────────────────────────────────────
 # Tab 6 — Graphological Feature Analysis
 # ──────────────────────────────────────────────────────────────────────────────
-
-def grapho_analyse(image: np.ndarray) -> tuple[str, np.ndarray]:
-    if image is None:
-        return "Carica un'immagine di scrittura a mano.", image
-
-    # Cap to 800 px: adaptive threshold is O(pixels × blockSize), so keeping
-    # the image small is critical. Graphological metrics are scale-invariant.
-    h0, w0 = image.shape[:2]
-    if max(h0, w0) > 800:
-        sc = 800 / max(h0, w0)
-        image = cv2.resize(image, (int(w0 * sc), int(h0 * sc)), interpolation=cv2.INTER_AREA)
-
-    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY) if len(image.shape) == 3 else image
-    # Adaptive threshold works locally: ignores the global dark background of
-    # phone photos that fools global Otsu into treating borders as ink.
-    binary = cv2.adaptiveThreshold(
-        cv2.GaussianBlur(gray, (5, 5), 0), 255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 31, 10,
-    )
-
-    # Slant
-    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    angles = []
-    for cnt in contours:
-        if cv2.contourArea(cnt) >= 20 and len(cnt) >= 5:
-            _, _, angle = cv2.fitEllipse(cnt)
-            slant = angle - 90.0
-            if -60 < slant < 60:
-                angles.append(slant)
-    slant_mean = float(np.mean(angles)) if angles else 0.0
-    slant_std = float(np.std(angles)) if angles else 0.0
-
-    # Pressure
-    ink_mask = binary > 0
-    pressure = (255 - gray)[ink_mask]
-    pressure_mean = float(pressure.mean()) if len(pressure) else 0.0
-
-    # Connected components
-    num, _, stats, _ = cv2.connectedComponentsWithStats(binary, 8)
-    valid = stats[1:][stats[1:, cv2.CC_STAT_AREA] > 15] if num > 1 else np.zeros((0, 5))
-    h_mean = float(valid[:, cv2.CC_STAT_HEIGHT].mean()) if len(valid) else 0.0
-    w_mean = float(valid[:, cv2.CC_STAT_WIDTH].mean()) if len(valid) else 0.0
-
-    # Word spacing
-    h_proj = binary.sum(axis=0)
-    gaps = []
-    in_gap, gap_w = False, 0
-    for v in h_proj:
-        if v == 0:
-            in_gap = True
-            gap_w += 1
-        elif in_gap:
-            if gap_w > 5:
-                gaps.append(gap_w)
-            in_gap = False
-            gap_w = 0
-    word_spacing = float(np.mean(gaps)) if gaps else 0.0
-
-    ink_density = ink_mask.mean() * 100
-
-    # Build annotated visualisation
-    vis = cv2.cvtColor(binary, cv2.COLOR_GRAY2RGB)
-    for cnt in contours:
-        if cv2.contourArea(cnt) >= 20:
-            x, y, w, h = cv2.boundingRect(cnt)
-            cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 180, 255), 1)
-
-    report = (
-        f"**Analisi delle Caratteristiche Grafologiche**\n\n"
-        f"| Caratteristica | Valore |\n"
-        f"|----------------|--------|\n"
-        f"| Inclinazione media lettere | {slant_mean:+.1f}° ({'destra' if slant_mean > 0 else 'sinistra' if slant_mean < 0 else 'verticale'}) |\n"
-        f"| Variazione inclinazione (σ) | {slant_std:.1f}° |\n"
-        f"| Pressione del tratto | {pressure_mean:.1f} / 255 |\n"
-        f"| Altezza media lettere | {h_mean:.1f} px |\n"
-        f"| Larghezza media lettere | {w_mean:.1f} px |\n"
-        f"| Spaziatura media parole | {word_spacing:.1f} px |\n"
-        f"| Densità inchiostro | {ink_density:.2f}% |\n"
-        f"| Componenti connesse | {len(valid)} |\n\n"
-        f"*I bounding box delle lettere sono visibili nell'immagine annotata.*"
-    )
-    return report, vis
-
 
 grapho_tab = gr.Interface(
     fn=grapho_analyse,
@@ -1175,69 +354,13 @@ grapho_tab = gr.Interface(
 # Tab 7 — Forensic Pipeline
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _detect_and_crop(
-    image: np.ndarray,
-    conf_threshold: float = 0.3,
-) -> tuple[np.ndarray, np.ndarray | None, str]:
-    """Run YOLO signature detection and return (annotated, first_crop, summary).
-
-    Gracefully degrades when YOLO is not available (missing HF_TOKEN).
-    """
-    annotated = image.copy()
-    try:
-        yolo = get_yolo()
-    except Exception:
-        return annotated, None, "⚠️ Rilevamento firma non disponibile (HF_TOKEN mancante)."
-
-    pil_img = Image.fromarray(image).convert("RGB")
-    import tempfile
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-        pil_img.save(tmp.name)
-        tmp_path = tmp.name
-
-    results = yolo.predict(tmp_path, conf=conf_threshold, verbose=False)
-    os.unlink(tmp_path)
-
-    result = results[0]
-    first_crop: np.ndarray | None = None
-    count = 0
-
-    if result.boxes is not None:
-        for box in result.boxes:
-            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
-            conf = float(box.conf[0].cpu())
-            cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 0, 0), 2)
-            cv2.putText(annotated, f"Sig #{count+1}  {conf:.0%}",
-                        (x1, max(y1 - 8, 0)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
-            if count == 0:
-                x1c = max(0, x1); y1c = max(0, y1)
-                x2c = min(image.shape[1], x2); y2c = min(image.shape[0], y2)
-                if x2c > x1c and y2c > y1c:
-                    first_crop = image[y1c:y2c, x1c:x2c]
-            count += 1
-
-    summary = (
-        f"Rilevat{'a' if count == 1 else 'e'} {count} firma{'' if count == 1 else 'e'}."
-        if count > 0
-        else "Nessuna firma rilevata nel documento."
-    )
-    return annotated, first_crop, summary
-
-
 def run_pipeline(
     doc_image: np.ndarray,
     ref_sig: np.ndarray | None,
     progress: gr.Progress = gr.Progress(track_tqdm=False),
 ):
-    """Orchestrate all 7 AI tools in sequence.
-
-    Generator: yields partial results after each step so the UI updates live.
-    Output order: s1_img, s1_txt, s2_txt, s3_hl, s3_md,
-                  s4_md, s4_img, s5_md, s5_img,
-                  s6_txt, s6_img, final_md, pipe_results, llm_md
-    """
-    _ = gr.update()   # no-op: leave output unchanged
+    """Gradio generator: yields partial UI outputs after each pipeline step."""
+    _ = gr.update()
 
     if doc_image is None:
         msg = "Carica il documento da analizzare."
@@ -1245,255 +368,42 @@ def run_pipeline(
                gr.update(visible=False), _)
         return
 
-    # ── Step 1: Signature Detection ───────────────────────────────────────────
-    progress(0.05, desc="Step 1/7 — Rilevamento firma…")
-    step1_img, sig_crop, step1_summary = _detect_and_crop(doc_image)
-    yield (step1_img, step1_summary, _, _, _, _, _, _, _, _, _, _, gr.update(visible=True), _)
+    def _on_progress(step, total, desc):
+        progress(step / total, desc=f"Step {step}/{total} — {desc}")
 
-    # ── Step 2: HTR ───────────────────────────────────────────────────────────
-    progress(0.20, desc="Step 2/7 — Trascrizione HTR…")
-    step2_text = htr_transcribe(doc_image)
-    yield (_, _, step2_text, _, _, _, _, _, _, _, _, _, _, _)
+    results = PipelineResults()
 
-    # ── Step 3: NER ───────────────────────────────────────────────────────────
-    progress(0.45, desc="Step 3/7 — Riconoscimento entità…")
-    text_for_ner = step2_text if step2_text and step2_text.strip() else ""
-    if text_for_ner:
-        step3_hl, step3_summary = ner_extract(text_for_ner)
-    else:
-        step3_hl, step3_summary = [], "Nessun testo trascritto disponibile per il NER."
-    yield (_, _, _, step3_hl, step3_summary, _, _, _, _, _, _, _, _, _)
-
-    # ── Step 4: Writer Identification ─────────────────────────────────────────
-    progress(0.60, desc="Step 4/7 — Identificazione scrittore…")
-    step4_report, step4_chart = writer_identify(doc_image)
-    yield (_, _, _, _, _, step4_report, step4_chart, _, _, _, _, _, _, _)
-
-    # ── Step 5: Graphological Analysis ────────────────────────────────────────
-    progress(0.75, desc="Step 5/7 — Analisi grafologica…")
-    step5_report, step5_vis = grapho_analyse(doc_image)
-    yield (_, _, _, _, _, _, _, step5_report, step5_vis, _, _, _, _, _)
-
-    # ── Step 6: Signature Verification ────────────────────────────────────────
-    progress(0.88, desc="Step 6/7 — Verifica firma…")
-    if ref_sig is not None:
-        query_for_verify = sig_crop if sig_crop is not None else doc_image
-        step6_report, step6_chart = sig_verify(ref_sig, None, query_for_verify)
-        if sig_crop is None:
-            step6_report += "\n\n⚠️ Nessuna firma estratta — confronto eseguito sull'immagine intera."
-    else:
-        step6_report = (
-            "Firma di riferimento non fornita.\n\n"
-            "Per abilitare questo step carica una firma autentica nota "
-            "nel campo 'Firma di riferimento' sopra."
+    for results in run_pipeline_steps(
+        doc_image, ref_sig, SIGNET_WEIGHTS, WRITER_SAMPLES_DIR, _on_progress
+    ):
+        yield (
+            results.sig_detect_image, results.sig_detect_summary,
+            results.htr_text,
+            results.ner_highlighted, results.ner_summary,
+            results.writer_report, results.writer_chart,
+            results.grapho_report, results.grapho_image,
+            results.sig_verify_report, results.sig_verify_chart,
+            results.final_report,
+            gr.update(visible=bool(results.sig_detect_summary)),
+            results.llm_report,
         )
-        step6_chart = None
-    yield (_, _, _, _, _, _, _, _, _, step6_report, step6_chart, _, _, _)
-
-    # ── Referto finale ────────────────────────────────────────────────────────
-    final_report = (
-        "## Referto Forense Integrato\n\n"
-        "---\n\n"
-        f"### Step 1 — Rilevamento Firma\n{step1_summary}\n\n"
-        f"### Step 2 — Trascrizione HTR\n```\n{step2_text}\n```\n\n"
-        f"### Step 3 — Entità Nominate\n{step3_summary}\n\n"
-        f"### Step 4 — Identificazione Scrittore\n{step4_report}\n\n"
-        f"### Step 5 — Caratteristiche Grafologiche\n{step5_report}\n\n"
-        f"### Step 6 — Verifica Firma\n{step6_report}\n\n"
-        "---\n\n"
-        "*Referto generato automaticamente da GraphoLab. "
-        "Tutti i risultati hanno carattere indicativo e devono essere valutati "
-        "da un perito calligrafo qualificato.*"
-    )
-    yield (_, _, _, _, _, _, _, _, _, _, _, final_report, _, _)
-
-    # ── Step 7: Sintesi LLM ───────────────────────────────────────────────────
-    progress(0.92, desc="Step 7/7 — Sintesi LLM…")
-    llm_report = _pipeline_llm_synthesis(
-        step1_summary, step2_text, step3_summary,
-        step4_report, step5_report, step6_report,
-    )
-    yield (_, _, _, _, _, _, _, _, _, _, _, _, _, llm_report)
 
 
-def _generate_pipeline_pdf(
-    s1_img, s1_txt,
-    s2_txt,
-    s3_md,
-    s4_md, s4_img,
-    s5_md, s5_img,
-    s6_txt, s6_img,
-    llm_text,
+def _generate_pipeline_pdf_wrapper(
+    s1_img, s1_txt, s2_txt, s3_md,
+    s4_md, s4_img, s5_md, s5_img,
+    s6_txt, s6_img, llm_text,
 ) -> str:
-    """Generate a PDF forensic report from pipeline outputs. Returns the file path."""
-    import tempfile, re, unicodedata
-    from fpdf import FPDF
-    from PIL import Image as _PILImage
-    import io as _io
-    import datetime
-
-    def _to_latin1(text: str) -> str:
-        """Normalize Unicode to latin-1 for fpdf2 core fonts."""
-        if not text:
-            return ""
-        replacements = {
-            "\u2014": "-", "\u2013": "-",
-            "\u2018": "'", "\u2019": "'",
-            "\u201c": '"', "\u201d": '"',
-            "\u2026": "...",
-            "\u2022": "*",
-            "\u2713": "v", "\u2714": "v",   # checkmark
-            "\u2718": "x", "\u2716": "x",   # cross mark
-            "\U0001f947": "1.", "\U0001f948": "2.", "\U0001f949": "3.",  # medaglie
-            "\u26a0\ufe0f": "(!)", "\u26a0": "(!)",  # warning
-            "\U0001f50d": "",  # lente di ingrandimento
-            "\U0001f5d1": "",  # cestino
-        }
-        for src, dst in replacements.items():
-            text = text.replace(src, dst)
-        return text.encode("latin-1", errors="replace").decode("latin-1")
-
-    def _md_to_plain(text: str) -> str:
-        """Strip markdown syntax to plain text for PDF rendering."""
-        if not text:
-            return ""
-        # convert markdown table rows to pipe-separated plain text
-        def _table_row_to_plain(m):
-            cells = [c.strip() for c in m.group(0).strip("|").split("|")]
-            return "  |  ".join(c for c in cells if c)
-        text = re.sub(r"^[-| ]+$", "", text, flags=re.MULTILINE)   # separator rows
-        text = re.sub(r"^\|.*\|$", _table_row_to_plain, text, flags=re.MULTILINE)
-        text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
-        text = re.sub(r"\*{1,2}(.+?)\*{1,2}", r"\1", text)
-        text = re.sub(r"`{1,3}[^`]*`{1,3}", "", text)
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        return _to_latin1(text.strip())
-
-    def _numpy_to_jpeg_bytes(arr) -> bytes | None:
-        """Convert numpy array to JPEG bytes for embedding in PDF."""
-        if arr is None:
-            return None
-        try:
-            img = _PILImage.fromarray(arr.astype("uint8"))
-            buf = _io.BytesIO()
-            img.save(buf, format="JPEG", quality=85)
-            return buf.getvalue()
-        except Exception:
-            return None
-
-    class ForensicPDF(FPDF):
-        def header(self):
-            self.set_font("Helvetica", "B", 10)
-            self.set_text_color(80, 80, 80)
-            self.cell(0, 8, "GraphoLab - Referto Forense Integrato", align="C")
-            self.ln(2)
-            self.set_draw_color(180, 180, 180)
-            self.line(10, self.get_y(), 200, self.get_y())
-            self.ln(4)
-
-        def footer(self):
-            self.set_y(-15)
-            self.set_font("Helvetica", "I", 8)
-            self.set_text_color(130, 130, 130)
-            self.cell(0, 10, f"Pagina {self.page_no()} - Generato da GraphoLab", align="C")
-
-    pdf = ForensicPDF()
-    pdf.set_auto_page_break(auto=True, margin=18)
-    pdf.add_page()
-
-    # ── Titolo ────────────────────────────────────────────────────────────────
-    pdf.set_font("Helvetica", "B", 18)
-    pdf.set_text_color(30, 30, 30)
-    pdf.cell(0, 12, "Referto Forense Integrato", align="C")
-    pdf.ln(4)
-    pdf.set_font("Helvetica", "", 10)
-    pdf.set_text_color(100, 100, 100)
-    now = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
-    pdf.cell(0, 8, f"Data generazione: {now}", align="C")
-    pdf.ln(10)
-
-    def _section_title(title: str):
-        pdf.set_font("Helvetica", "B", 12)
-        pdf.set_text_color(255, 255, 255)
-        pdf.set_fill_color(50, 80, 120)
-        pdf.cell(0, 8, _to_latin1(f"  {title}"), fill=True)
-        pdf.ln(12)
-        pdf.set_text_color(30, 30, 30)
-
-    def _body_text(text: str):
-        if not text:
-            return
-        pdf.set_font("Helvetica", "", 10)
-        pdf.set_text_color(40, 40, 40)
-        pdf.multi_cell(0, 5, _md_to_plain(text))
-        pdf.ln(3)
-
-    def _embed_image(arr, max_w: int = 170):
-        data = _numpy_to_jpeg_bytes(arr)
-        if data is None:
-            return
-        buf = _io.BytesIO(data)
-        img = _PILImage.open(buf)
-        w, h = img.size
-        ratio = min(max_w / w, 100 / h)
-        disp_w, disp_h = w * ratio, h * ratio
-        buf.seek(0)
-        x = (210 - disp_w) / 2
-        pdf.image(buf, x=x, w=disp_w, h=disp_h)
-        pdf.ln(4)
-
-    # ── Step 1 ────────────────────────────────────────────────────────────────
-    _section_title("Step 1 — Rilevamento Firma (YOLOv8)")
-    _body_text(s1_txt)
-    _embed_image(s1_img)
-
-    # ── Step 2 ────────────────────────────────────────────────────────────────
-    _section_title("Step 2 — Trascrizione HTR (EasyOCR)")
-    _body_text(s2_txt)
-
-    # ── Step 3 ────────────────────────────────────────────────────────────────
-    _section_title("Step 3 — Riconoscimento Entita' (NER)")
-    _body_text(s3_md or "Nessuna entita' rilevata nel testo trascritto.")
-
-    # ── Step 4 ────────────────────────────────────────────────────────────────
-    _section_title("Step 4 — Identificazione Scrittore")
-    _body_text(s4_md)
-    _embed_image(s4_img)
-
-    # ── Step 5 ────────────────────────────────────────────────────────────────
-    _section_title("Step 5 — Analisi Grafologica")
-    _body_text(s5_md)
-    _embed_image(s5_img)
-
-    # ── Step 6 ────────────────────────────────────────────────────────────────
-    _section_title("Step 6 — Verifica Firma (SigNet)")
-    _body_text(s6_txt)
-    _embed_image(s6_img)
-
-    # ── Step 7: LLM ───────────────────────────────────────────────────────────
-    _section_title("Step 7 — Valutazione LLM (Ollama)")
-    _body_text(llm_text)
-
-    # ── Disclaimer ────────────────────────────────────────────────────────────
-    pdf.ln(6)
-    pdf.set_draw_color(180, 180, 180)
-    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-    pdf.ln(4)
-    pdf.set_font("Helvetica", "I", 8)
-    pdf.set_text_color(120, 120, 120)
-    pdf.multi_cell(
-        0, 4,
-        "Referto generato automaticamente da GraphoLab. "
-        "Tutti i risultati hanno carattere indicativo e devono essere valutati "
-        "da un perito calligrafo qualificato.",
+    results = PipelineResults(
+        sig_detect_image=s1_img, sig_detect_summary=s1_txt or "",
+        htr_text=s2_txt or "",
+        ner_summary=s3_md or "",
+        writer_report=s4_md or "", writer_chart=s4_img,
+        grapho_report=s5_md or "", grapho_image=s5_img,
+        sig_verify_report=s6_txt or "", sig_verify_chart=s6_img,
+        llm_report=llm_text or "",
     )
-
-    # ── Salvataggio ───────────────────────────────────────────────────────────
-    tmp = tempfile.NamedTemporaryFile(
-        suffix=".pdf", prefix="grapholab_referto_", delete=False
-    )
-    pdf.output(tmp.name)
-    return tmp.name
+    return generate_forensic_pdf(results)
 
 
 with gr.Blocks() as pipeline_tab:
@@ -1514,14 +424,8 @@ with gr.Blocks() as pipeline_tab:
     )
 
     with gr.Row():
-        pipe_doc = gr.Image(
-            label="Documento da analizzare (testamento, lettera, atto)",
-            type="numpy",
-        )
-        pipe_ref = gr.Image(
-            label="Firma di riferimento nota — opzionale (per Step 6)",
-            type="numpy",
-        )
+        pipe_doc = gr.Image(label="Documento da analizzare (testamento, lettera, atto)", type="numpy")
+        pipe_ref = gr.Image(label="Firma di riferimento nota — opzionale (per Step 6)", type="numpy")
 
     pipe_btn = gr.Button("▶  Avvia Analisi Forense", variant="primary", size="lg")
 
@@ -1588,7 +492,7 @@ with gr.Blocks() as pipeline_tab:
     )
 
     pdf_btn.click(
-        fn=_generate_pipeline_pdf,
+        fn=_generate_pipeline_pdf_wrapper,
         inputs=[
             out_s1_img, out_s1_txt,
             out_s2_txt,
@@ -1601,146 +505,20 @@ with gr.Blocks() as pipeline_tab:
         outputs=pdf_out,
     )
 
-
 # ──────────────────────────────────────────────────────────────────────────────
-# Tab 8 — Datazione Documenti
+# Tab 8 — Document Dating
 # ──────────────────────────────────────────────────────────────────────────────
 
-import re as _re
-from datetime import datetime as _datetime
-
-# Regex L1 — date italiane e numeriche
-_DATE_PATTERNS = [
-    # "10 gennaio 2024" / "10 gennaio del 2024"
-    r"\b(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|"
-    r"luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(?:del\s+)?(\d{4})\b",
-    # "10 gen. 2024" / abbreviazioni
-    r"\b(\d{1,2})\s+(gen|feb|mar|apr|mag|giu|lug|ago|set|ott|nov|dic)\.?\s+(\d{4})\b",
-    # "10/01/2024" o "10-01-2024" o "10.01.2024"
-    r"\b(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})\b",
-    # "gennaio 2024" (senza giorno)
-    r"\b(gennaio|febbraio|marzo|aprile|maggio|giugno|"
-    r"luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(\d{4})\b",
-]
-_DATE_RE = _re.compile("|".join(_DATE_PATTERNS), _re.IGNORECASE)
-
-
-def _try_dateparser(raw: str) -> _datetime | None:
-    """Parse a raw date string to datetime using dateparser (Italian-aware)."""
-    try:
-        import dateparser
-        dt = dateparser.parse(
-            raw,
-            languages=["it", "en"],
-            settings={"PREFER_DAY_OF_MONTH": "first", "RETURN_AS_TIMEZONE_AWARE": False},
-        )
-        if dt and 1800 < dt.year < 2200:
-            return dt
-    except Exception:
-        pass
-    return None
-
-
-def extract_dates(text: str) -> list[tuple[str, _datetime]]:
-    """Extract and normalize dates from OCR text.
-
-    Returns a list of (raw_string, datetime) pairs, sorted chronologically.
-    Uses regex L1 first; falls back to scanning NER DATE entities if nothing found.
-    """
-    found: list[tuple[str, _datetime]] = []
-
-    # L1 — regex
-    _BIRTH_KW = ("nata", "nato", "nascita", "nasc.", "nata il", "nato il")
-    for m in _DATE_RE.finditer(text):
-        raw = m.group(0).strip()
-        context_before = text[max(0, m.start() - 35) : m.start()].lower()
-        if any(kw in context_before for kw in _BIRTH_KW):
-            continue  # data di nascita — ignorala
-        dt = _try_dateparser(raw)
-        if dt:
-            found.append((raw, dt))
-
-    # L2 — NER fallback (filters DATE entities from wikineural NER)
-    if not found:
-        try:
-            ner_html, ner_md = ner_extract(text)
-            # Extract DATE spans from NER Markdown (pattern: **WORD** `DATE`)
-            for raw in _re.findall(r"\*\*([^*]+)\*\*\s*`DATE`", ner_md or ""):
-                dt = _try_dateparser(raw)
-                if dt:
-                    found.append((raw, dt))
-        except Exception:
-            pass
-
-    # De-duplicate by normalized date
-    seen: set[str] = set()
-    unique: list[tuple[str, _datetime]] = []
-    for raw, dt in found:
-        key = dt.strftime("%Y-%m-%d")
-        if key not in seen:
-            seen.add(key)
-            unique.append((raw, dt))
-
-    return sorted(unique, key=lambda x: x[1])
-
-
-def dating_rank(files: list) -> str:
-    """Main function for the Datazione Documenti tab.
-
-    Accepts a list of uploaded files (gr.File objects), runs OCR on each,
-    extracts dates, and returns a Markdown table sorted chronologically.
-    """
+def _dating_rank_gradio(files: list) -> str:
+    """Gradio wrapper: converts gr.File objects to file paths for core function."""
     if not files:
         return "Carica almeno un'immagine di documento."
-
-    reader = get_easyocr()
-    rows: list[tuple[str, str, _datetime | None]] = []
-
-    for f in files:
-        path = f.name if hasattr(f, "name") else str(f)
-        name = path.split("\\")[-1].split("/")[-1]
-        try:
-            img = Image.open(path).convert("RGB")
-            img_np = np.array(img)
-            ocr_lines = reader.readtext(img_np, detail=0, paragraph=False)
-            text = "\n".join(ocr_lines)
-            dates = extract_dates(text)
-            if dates:
-                raw, dt = dates[-1]         # data più recente = data di redazione
-                rows.append((name, raw, dt))
-            else:
-                rows.append((name, "—  data non trovata", None))
-        except Exception as e:
-            rows.append((name, f"Errore: {e}", None))
-
-    # Sort: dated docs first (chronologically), undated last
-    dated   = [(n, r, dt) for n, r, dt in rows if dt is not None]
-    undated = [(n, r, dt) for n, r, dt in rows if dt is None]
-    dated.sort(key=lambda x: x[2])
-    sorted_rows = dated + undated
-
-    lines = [
-        "## Datazione Documenti — Risultati\n",
-        "| # | Documento | Data estratta | Data normalizzata |",
-        "|---|-----------|--------------|-------------------|",
-    ]
-    for i, (name, raw, dt) in enumerate(sorted_rows, 1):
-        norm = dt.strftime("%Y-%m-%d") if dt else "—"
-        lines.append(f"| {i} | `{name}` | {raw} | {norm} |")
-
-    if not dated:
-        lines.append("\n> Nessuna data rilevata nei documenti caricati.")
-    else:
-        lines.append(
-            f"\n*{len(dated)} document{'o' if len(dated)==1 else 'i'} datato/i, "
-            f"{len(undated)} senza data.*"
-        )
-
-    return "\n".join(lines)
+    paths = [f.name if hasattr(f, "name") else str(f) for f in files]
+    return _dating_rank_core(paths)
 
 
 dating_tab = gr.Interface(
-    fn=dating_rank,
+    fn=_dating_rank_gradio,
     inputs=gr.File(
         label="Immagini documenti (carica 2 o più)",
         file_count="multiple",
@@ -1757,504 +535,9 @@ dating_tab = gr.Interface(
     ),
 )
 
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Tab 9 — Consulente Forense IA (RAG + Ollama)
 # ──────────────────────────────────────────────────────────────────────────────
-
-_RAG_SYNTHETIC_DOCS = [
-    (
-        "Analisi della pressione",
-        "La pressione grafica indica la forza con cui la penna o la matita viene premuta sul foglio. "
-        "Una pressione forte (tratti profondi, rilevabili anche sul retro del foglio) è associata a "
-        "carattere deciso, vitalità e a volte aggressività. Una pressione leggera (tratti quasi "
-        "impercettibili) può indicare sensibilità, adattabilità o, in contesti patologici, stanchezza "
-        "e astenia. La pressione irregolare — alternanza di tratti forti e deboli nello stesso scritto — "
-        "può segnalare instabilità emotiva, stati di ansia o condizioni neurologiche. In grafologia "
-        "forense la pressione è fondamentale per distinguere scritture apposte in condizioni normali "
-        "da quelle prodotte sotto costrizione fisica o psicologica.",
-    ),
-    (
-        "Inclinazione del tratto",
-        "L'inclinazione della scrittura descrive l'angolo dei tratti verticali delle lettere rispetto "
-        "alla riga di base. Una scrittura verticale (0°) indica equilibrio e obiettività. "
-        "L'inclinazione a destra (>15°) è associata a estroversia, impulsività e orientamento verso "
-        "il futuro. L'inclinazione a sinistra (<−10°) può indicare introversione, tendenza al ripiegamento "
-        "su se stessi o, in contesti forensi, un tentativo di camuffare la propria calligrafia. "
-        "L'inclinazione variabile (misto destra/sinistra nello stesso testo) è indicatore di "
-        "instabilità emotiva. La misurazione forense dell'inclinazione avviene tramite analisi "
-        "angolare dei tratti ascendenti (h, l, b, f) e discendenti (g, p, q).",
-    ),
-    (
-        "Spaziatura grafica",
-        "La spaziatura riguarda la distanza tra lettere, parole e righe. Spaziatura ampia tra le parole "
-        "indica bisogno di spazio personale, pensiero indipendente e, talvolta, solitudine. "
-        "Spaziatura ridotta (parole quasi attaccate) è correlata a socievolezza eccessiva, difficoltà "
-        "nei confini relazionali e, in casi estremi, pensiero confusionario. La spaziatura irregolare — "
-        "alternanza di parole distanti e ravvicinate — è un indicatore di disorganizzazione cognitiva "
-        "o di scrittura non spontanea (es. copiatura o dettatura lenta). In perizie forensi, "
-        "la spaziatura viene misurata in millimetri su campioni standardizzati.",
-    ),
-    (
-        "Margini e layout",
-        "I margini del foglio riflettono il rapporto dello scrittore con l'ambiente e il contesto "
-        "sociale. Un margine sinistro ampio e costante indica rispetto delle regole e pianificazione. "
-        "Un margine sinistro che si allarga progressivamente (testo che 'scivola' verso destra) "
-        "suggerisce entusiasmo crescente o impulsività. Margine destro ampio è associato a prudenza, "
-        "timore del futuro e riservatezza. L'assenza di margini (testo che occupa tutto il foglio) "
-        "indica esuberanza comunicativa o senso di urgenza. In perizia, il margine aiuta a "
-        "distinguere scritti autentici da trascrizioni o copie, poiché l'autore mantiene "
-        "inconsciamente le proprie abitudini spaziali.",
-    ),
-    (
-        "Firme autentiche",
-        "Una firma autentica possiede caratteristiche di naturalezza e fluidità del movimento. "
-        "I tratti sono continui, con accelerazione e decelerazione tipiche del gesto automatizzato. "
-        "La pressione varia in modo coerente con il ritmo del tratto. I legamenti tra le lettere "
-        "sono coerenti con il corpus grafico dello scrittore. La firma autentica presenta micro-tremori "
-        "naturali (diversi dai tremori patologici) e piccole variazioni tra esecuzioni successive, "
-        "mai perfettamente identiche. In perizia calligrafica, si confrontano almeno 10-15 firme "
-        "autentiche per stabilire la 'gamma di variazione naturale' prima di esaminare la firma contestata.",
-    ),
-    (
-        "Firme false",
-        "Le firme contraffatte si distinguono per diversi indicatori: velocità di esecuzione "
-        "innaturalmente lenta (visibile nei 'tocchi' del pennino e nelle esitazioni), tremori "
-        "artificiali (regolari, non spontanei), ritocchi e correzioni del tratto, interruzioni "
-        "anomale del gesto. La falsificazione per imitazione diretta (calco o copia visiva) produce "
-        "una firma con aspetto simile all'originale ma con movimenti invertiti rispetto alla direzione "
-        "naturale. Il falsario tende a concentrarsi sulla forma complessiva trascurando i dettagli "
-        "minuti (proporzioni tra lettere, angolo di attacco del tratto, pressione). "
-        "L'analisi forense utilizza ingrandimenti 10x-40x e, nei casi dubbi, grafometria digitale.",
-    ),
-    (
-        "Velocità e ritmo",
-        "La velocità di scrittura si manifesta nella forma delle lettere (semplificazione dei tratti "
-        "in scrittura rapida), nell'inclinazione (più marcata ad alta velocità), nelle legature "
-        "(frequenti in scrittura veloce, assenti in quella lenta). Il ritmo è la regolarità con cui "
-        "si alternano tensione e distensione nel movimento grafico. Un ritmo regolare indica "
-        "equilibrio psicofisico. Un ritmo aritmico (alternanza caotica di tratti tesi e distesi) "
-        "può segnalare stati emotivi alterati, patologie neurologiche o scrittura non spontanea. "
-        "In perizia forense la velocità è cruciale: una firma depositata 'lentamente' da una persona "
-        "abitualmente veloce è un forte indicatore di contraffazione.",
-    ),
-    (
-        "Datazione documenti",
-        "La datazione grafica di un documento si basa su elementi intrinseci ed estrinseci. "
-        "Elementi intrinseci: evoluzione dello stile grafico dell'autore nel tempo (campioni noti "
-        "datati permettono di costruire una 'curva di evoluzione'), deterioramento della calligrafia "
-        "legato all'età, variazioni nelle abitudini punteggiatura e abbreviazioni. "
-        "Elementi estrinseci: tipo di inchiostro (analisi spettroscopica), supporto cartaceo "
-        "(filigrana, composizione chimica), strumento di scrittura (biro, stilografica, matita). "
-        "L'analisi dell'inchiostro mediante cromatografia liquida può stabilire se l'inchiostro "
-        "è compatibile con la data dichiarata. In perizia, la datazione grafica va sempre "
-        "abbinata ad analisi chimiche per raggiungere un grado di certezza forense.",
-    ),
-]
-
-_RAG_KNOWLEDGE_DIR = ROOT / "data" / "knowledge"
-
-
-def _chunk_text(text: str, source: str, size: int = 500, overlap: int = 50) -> list:
-    chunks = []
-    start = 0
-    while start < len(text):
-        end = min(start + size, len(text))
-        chunk = text[start:end].strip()
-        if chunk:
-            chunks.append({"text": chunk, "source": source, "emb": None})
-        start += size - overlap
-    return chunks
-
-
-def _ollama_embed(text: str):
-    try:
-        r = _requests.post(
-            f"{OLLAMA_URL}/api/embeddings",
-            json={"model": _embed_model, "prompt": text},
-            timeout=30,
-        )
-        return np.array(r.json()["embedding"], dtype=np.float32)
-    except Exception:
-        return None
-
-
-def _ollama_embed_batch(texts: list) -> list:
-    """Embed a list of texts in a single Ollama call (/api/embed, Ollama >= 0.1.26).
-    Returns a list of np.ndarray (or None on error). Falls back to sequential
-    _ollama_embed calls if the batch endpoint is unavailable.
-    """
-    try:
-        r = _requests.post(
-            f"{OLLAMA_URL}/api/embed",
-            json={"model": _embed_model, "input": texts},
-            timeout=max(30, len(texts) * 3),
-        )
-        r.raise_for_status()
-        data = r.json()
-        embeddings = data.get("embeddings") or data.get("embedding")
-        if embeddings and len(embeddings) == len(texts):
-            return [np.array(e, dtype=np.float32) for e in embeddings]
-    except Exception:
-        pass
-    # Fallback: sequential calls
-    return [_ollama_embed(t) for t in texts]
-
-
-def _ollama_list_models() -> list:
-    """Return sorted list of model names available in Ollama."""
-    try:
-        r = _requests.get(f"{OLLAMA_URL}/api/tags", timeout=3)
-        models = [m["name"] for m in r.json().get("models", [])]
-        return sorted(models) if models else [OLLAMA_MODEL]
-    except Exception:
-        return [OLLAMA_MODEL]
-
-
-def set_rag_model(model_name: str) -> str:
-    global _rag_model
-    if model_name:
-        _rag_model = model_name
-    return f"✅ Modello attivo: **{_rag_model}**"
-
-
-def _cosine_top_k(query_emb: np.ndarray, k: int = 3) -> list:
-    if not _rag_chunks:
-        return []
-    embs = np.stack([c["emb"] for c in _rag_chunks if c["emb"] is not None])
-    valid = [c for c in _rag_chunks if c["emb"] is not None]
-    if len(valid) == 0:
-        return []
-    q = query_emb / (np.linalg.norm(query_emb) + 1e-9)
-    norms = np.linalg.norm(embs, axis=1, keepdims=True) + 1e-9
-    scores = (embs / norms) @ q
-    idxs = np.argsort(scores)[::-1][:k]
-    return [(float(scores[i]), valid[i]) for i in idxs]
-
-
-def _rag_cache_path(filename: str, file_bytes: bytes) -> Path:
-    h = _hashlib.sha256(file_bytes).hexdigest()[:8]
-    stem = Path(filename).stem[:40]
-    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in stem)
-    return _RAG_CACHE_DIR / f"{safe}_{h}.npz"
-
-
-def _rag_cache_save(cache_path: Path, chunks: list, filename: str) -> None:
-    _RAG_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    good = [c for c in chunks if c["emb"] is not None]
-    if not good:
-        return
-    texts = np.array([c["text"] for c in good], dtype=object)
-    sources = np.array([c["source"] for c in good], dtype=object)
-    embs = np.stack([c["emb"] for c in good])
-    np.savez_compressed(
-        str(cache_path),
-        texts=texts,
-        sources=sources,
-        embs=embs,
-        filename=np.array(filename, dtype=object),
-    )
-
-
-def _rag_cache_load(cache_path: Path) -> tuple:
-    """Returns (chunks, original_filename)."""
-    data = np.load(str(cache_path), allow_pickle=True)
-    filename = str(data["filename"])
-    chunks = [
-        {"text": str(t), "source": str(s), "emb": e}
-        for t, s, e in zip(data["texts"], data["sources"], data["embs"])
-    ]
-    return chunks, filename
-
-
-def _rag_doc_list() -> list:
-    """Return rows [[filename, chunk_count]] for gr.Dataframe (user docs only)."""
-    synthetic_sources = {s for s, _ in _RAG_SYNTHETIC_DOCS}
-    counts: dict = {}
-    for c in _rag_chunks:
-        src = c["source"]
-        if src not in synthetic_sources:
-            counts[src] = counts.get(src, 0) + 1
-    return [[name, cnt] for name, cnt in sorted(counts.items())]
-
-
-def _rag_doc_choices() -> list:
-    return [row[0] for row in _rag_doc_list()]
-
-
-def _extract_pdf_text(path: Path) -> str:
-    """Extract text from a PDF, falling back to EasyOCR for scanned pages."""
-    full_text = []
-    try:
-        import pypdf
-    except ImportError:
-        print(f"[RAG] pypdf not installed — skipping {path.name}")
-        return ""
-    try:
-        reader = pypdf.PdfReader(str(path))
-        for page_num, page in enumerate(reader.pages):
-            page_text = page.extract_text() or ""
-            if len(page_text.strip()) >= 50:
-                full_text.append(page_text)
-            else:
-                # Scanned page — render to image and OCR
-                try:
-                    import fitz  # pymupdf
-                    doc = fitz.open(str(path))
-                    fitz_page = doc[page_num]
-                    mat = fitz.Matrix(150 / 72, 150 / 72)  # 150 DPI
-                    pix = fitz_page.get_pixmap(matrix=mat)
-                    img_arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
-                        pix.height, pix.width, pix.n
-                    )
-                    if pix.n == 4:
-                        img_arr = img_arr[:, :, :3]
-                    ocr_result = get_easyocr().readtext(img_arr, detail=0, paragraph=True)
-                    full_text.append(" ".join(ocr_result))
-                    doc.close()
-                except ImportError:
-                    print(f"[RAG] pymupdf not installed — cannot OCR scanned page {page_num+1} of {path.name}")
-                except Exception as e:
-                    print(f"[RAG] OCR error on page {page_num+1} of {path.name}: {e}")
-    except Exception as e:
-        print(f"[RAG] Error reading PDF {path.name}: {e}")
-    return "\n".join(full_text)
-
-
-def _rag_load_docs():
-    global _rag_chunks, _rag_indexed_files, _rag_ready
-    with _rag_lock:
-        chunks: list = []
-
-        # Synthetic built-in knowledge (always re-embedded at startup)
-        for source, text in _RAG_SYNTHETIC_DOCS:
-            chunks.extend(_chunk_text(text, source))
-
-        # Load cached user documents (pre-embedded — no Ollama calls needed)
-        _RAG_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        for cache_file in sorted(_RAG_CACHE_DIR.glob("*.npz")):
-            try:
-                cached_chunks, orig_filename = _rag_cache_load(cache_file)
-                chunks.extend(cached_chunks)
-                _rag_indexed_files.add(orig_filename)
-                print(f"[RAG] Loaded from cache: {orig_filename} ({len(cached_chunks)} chunks)")
-            except Exception as e:
-                print(f"[RAG] Corrupt cache file {cache_file.name}: {e} — skipping")
-
-        _rag_chunks = chunks
-        _rag_ready = True
-        print(f"[RAG] Chunks loaded: {len(chunks)} (synthetic + cached)")
-
-    # Embed only synthetic chunks (emb is None); cached chunks already have embeddings
-    to_embed = [c for c in _rag_chunks if c["emb"] is None]
-    if to_embed:
-        embeddings = _ollama_embed_batch([c["text"] for c in to_embed])
-        embedded = 0
-        for chunk, emb in zip(to_embed, embeddings):
-            if emb is not None:
-                chunk["emb"] = emb
-                embedded += 1
-        print(f"[RAG] Synthetic embedding done: {embedded} chunks")
-    else:
-        print("[RAG] Synthetic embedding done: 0 chunks (all cached)")
-
-
-def rag_add_docs(files) -> tuple:
-    """Index uploaded PDF/DOCX files and add them to the live knowledge base."""
-    global _rag_indexed_files
-    if not files:
-        return "Nessun file caricato.", _rag_doc_list()
-    try:
-        _requests.get(f"{OLLAMA_URL}/api/tags", timeout=3)
-    except Exception:
-        return (
-            "❌ Ollama non raggiungibile — i documenti non possono essere indicizzati.\n"
-            "Avvia `ollama serve` e ricarica.",
-            _rag_doc_list(),
-        )
-    lines = []
-    for f in files:
-        path = Path(f.name)
-        suffix = path.suffix.lower()
-        if path.name in _rag_indexed_files:
-            lines.append(f"ℹ️ `{path.name}` — già indicizzato, saltato.")
-            continue
-
-        file_bytes = path.read_bytes()
-        cache_path = _rag_cache_path(path.name, file_bytes)
-
-        # Load from cache if available (avoids re-embedding)
-        if cache_path.exists():
-            try:
-                cached_chunks, _ = _rag_cache_load(cache_path)
-                with _rag_lock:
-                    _rag_chunks.extend(cached_chunks)
-                    _rag_indexed_files.add(path.name)
-                lines.append(f"✅ `{path.name}` — {len(cached_chunks)} chunk caricati dalla cache.")
-                continue
-            except Exception:
-                pass  # fall through to re-embed
-
-        try:
-            if suffix == ".pdf":
-                text = _extract_pdf_text(path)
-            elif suffix in (".docx", ".doc"):
-                import docx as _docx
-                doc_obj = _docx.Document(str(path))
-                text = "\n".join(p.text for p in doc_obj.paragraphs)
-            else:
-                lines.append(f"⚠️ `{path.name}` — formato non supportato (solo PDF/DOCX).")
-                continue
-        except Exception as e:
-            lines.append(f"❌ `{path.name}` — errore: {e}")
-            continue
-
-        if not text.strip():
-            lines.append(f"⚠️ `{path.name}` — nessun testo estratto.")
-            continue
-
-        chunks = _chunk_text(text, path.name)
-        embeddings = _ollama_embed_batch([c["text"] for c in chunks])
-        embedded = 0
-        for chunk, emb in zip(chunks, embeddings):
-            if emb is not None:
-                chunk["emb"] = emb
-                embedded += 1
-
-        try:
-            _rag_cache_save(cache_path, chunks, path.name)
-        except Exception as e:
-            print(f"[RAG] Cache write failed for {path.name}: {e}")
-
-        with _rag_lock:
-            _rag_chunks.extend(chunks)
-            _rag_indexed_files.add(path.name)
-        lines.append(f"✅ `{path.name}` — {len(chunks)} chunk, {embedded} indicizzati.")
-
-    return "\n".join(lines), _rag_doc_list()
-
-
-def rag_remove_doc(filename: str) -> tuple:
-    """Remove all chunks for a document from memory and delete its cache file."""
-    global _rag_chunks, _rag_indexed_files
-    if not filename or not filename.strip():
-        return "Nessun documento selezionato.", _rag_doc_list()
-
-    with _rag_lock:
-        before = len(_rag_chunks)
-        _rag_chunks = [c for c in _rag_chunks if c["source"] != filename]
-        removed_chunks = before - len(_rag_chunks)
-        _rag_indexed_files.discard(filename)
-
-    deleted_files = 0
-    if _RAG_CACHE_DIR.exists():
-        for cache_file in _RAG_CACHE_DIR.glob("*.npz"):
-            try:
-                with np.load(str(cache_file), allow_pickle=True) as data:
-                    match = str(data["filename"]) == filename
-                if match:
-                    cache_file.unlink()
-                    deleted_files += 1
-            except Exception:
-                pass
-
-    if removed_chunks == 0:
-        return f"⚠️ `{filename}` non trovato nell'indice.", _rag_doc_list()
-
-    msg = f"🗑️ `{filename}` rimosso ({removed_chunks} chunk eliminati"
-    if deleted_files:
-        msg += ", cache eliminata"
-    msg += ")."
-    return msg, _rag_doc_list()
-
-
-def _stream_ollama(prompt: str):
-    """Yield response tokens from Ollama one at a time (streaming)."""
-    with _requests.post(
-        f"{OLLAMA_URL}/api/generate",
-        json={"model": _rag_model, "prompt": prompt, "stream": True},
-        stream=True,
-        timeout=120,
-    ) as r:
-        for line in r.iter_lines():
-            if line:
-                data = _json.loads(line)
-                if not data.get("done"):
-                    yield data.get("response", "")
-
-
-def _pipeline_llm_synthesis(
-    step1_summary: str,
-    step2_text: str,
-    step3_summary: str,
-    step4_report: str,
-    step5_report: str,
-    step6_report: str,
-) -> str:
-    """Chiama Ollama per sintetizzare i risultati dei 6 step in un referto forense narrativo."""
-    try:
-        _requests.get(f"{OLLAMA_URL}/api/tags", timeout=3)
-    except Exception:
-        return (
-            "❌ **Ollama non raggiungibile.** Avvia il server con:\n"
-            "```\nollama serve\n```"
-        )
-    prompt = (
-        "Sei un perito calligrafo forense esperto. "
-        "Sulla base delle seguenti analisi tecniche su un documento, "
-        "fornisci in italiano una valutazione complessiva professionale: "
-        "evidenzia elementi di interesse forense, coerenze e incoerenze tra i risultati, "
-        "e suggerisci eventuali ulteriori verifiche.\n\n"
-        f"=== RILEVAMENTO FIRMA ===\n{step1_summary}\n\n"
-        f"=== TRASCRIZIONE HTR ===\n{step2_text}\n\n"
-        f"=== ENTITÀ RICONOSCIUTE (NER) ===\n{step3_summary}\n\n"
-        f"=== IDENTIFICAZIONE AUTORE ===\n{step4_report}\n\n"
-        f"=== ANALISI GRAFOLOGICA ===\n{step5_report}\n\n"
-        f"=== VERIFICA FIRMA ===\n{step6_report}\n\n"
-        "Valutazione forense integrata:"
-    )
-    result = ""
-    try:
-        for token in _stream_ollama(prompt):
-            result += token
-    except Exception as e:
-        return f"❌ Errore nella generazione LLM: {e}"
-    return result if result else "*(Nessuna risposta dal modello)*"
-
-
-def _rag_retrieve(question: str):
-    """Return (results, error_str). results is list of (score, chunk)."""
-    embedded_chunks = [c for c in _rag_chunks if c["emb"] is not None]
-    if not embedded_chunks:
-        total = len(_rag_chunks)
-        return None, (
-            f"⏳ Embedding in corso (0/{total} chunk pronti). "
-            "Riprovare tra qualche secondo — l'indicizzazione procede in background."
-        )
-    q_emb = _ollama_embed(question)
-    if q_emb is None:
-        return None, "❌ Impossibile generare l'embedding della domanda. Ollama è in esecuzione?"
-
-    synthetic_sources = {s for s, _ in _RAG_SYNTHETIC_DOCS}
-    user_chunks = [c for c in _rag_chunks if c["emb"] is not None and c["source"] not in synthetic_sources]
-    synth_chunks = [c for c in _rag_chunks if c["emb"] is not None and c["source"] in synthetic_sources]
-
-    def _top_k_from(pool, q, k):
-        if not pool:
-            return []
-        embs = np.stack([c["emb"] for c in pool])
-        q_n = q / (np.linalg.norm(q) + 1e-9)
-        norms = np.linalg.norm(embs, axis=1, keepdims=True) + 1e-9
-        scores = (embs / norms) @ q_n
-        idxs = np.argsort(scores)[::-1][:k]
-        return [(float(scores[i]), pool[i]) for i in idxs]
-
-    user_results = _top_k_from(user_chunks, q_emb, 2)
-    synth_results = _top_k_from(synth_chunks, q_emb, 2)
-    if not user_results:
-        synth_results = _top_k_from(synth_chunks, q_emb, 4)
-    return user_results + synth_results, None
-
 
 def _content_str(content) -> str:
     """Normalize Gradio 6.x content field (str or list of parts) to plain str."""
@@ -2272,82 +555,38 @@ def _content_str(content) -> str:
 
 
 def rag_chat(message: str, history: list):
-    """Streaming chatbot: yield updated history after each token.
-
-    history is a flat list of {"role": "user"|"assistant", "content": str}
-    as required by Gradio 6.x Chatbot.
-    """
+    """Gradio streaming wrapper for rag_chat_stream."""
     if not message or not message.strip():
         yield history
         return
 
-    # Verifica Ollama raggiungibile
-    try:
-        _requests.get(f"{OLLAMA_URL}/api/tags", timeout=3)
-    except Exception:
-        err = (
-            "❌ **Ollama non raggiungibile.**\n\n"
-            "Avvia il server con:\n```\nollama serve\n```\n"
-            "e assicurati che il modello sia scaricato:\n"
-            "```\nollama pull llama3.2\n```"
-        )
-        yield history + [{"role": "user", "content": message}, {"role": "assistant", "content": err}]
-        return
+    # Normalise history content to plain strings for core function
+    normalised_history = [
+        {"role": msg["role"], "content": _content_str(msg["content"])}
+        for msg in history
+    ]
 
-    if not _rag_ready:
-        msg = "⏳ Indice della knowledge base in costruzione, riprovare tra qualche secondo…"
-        yield history + [{"role": "user", "content": message}, {"role": "assistant", "content": msg}]
-        return
-
-    results, err = _rag_retrieve(message)
-    if err:
-        yield history + [{"role": "user", "content": message}, {"role": "assistant", "content": err}]
-        return
-
-    context = "\n\n".join(f"[{c['source']}]\n{c['text']}" for _, c in results)
-
-    # Build conversation context from last 6 exchanges (12 messages in flat list)
-    recent = history[-12:] if len(history) > 12 else history
-    conv_text = ""
-    i = 0
-    while i < len(recent) - 1:
-        if recent[i]["role"] == "user" and recent[i + 1]["role"] == "assistant":
-            u = _content_str(recent[i]["content"])
-            a = _content_str(recent[i + 1]["content"]).split("\n\n---\n")[0]
-            conv_text += f"Utente: {u}\nAssistente: {a}\n\n"
-            i += 2
-        else:
-            i += 1
-
-    prompt = (
-        "Sei un esperto di grafologia forense. Rispondi in italiano, in modo preciso e "
-        "conciso, basandoti ESCLUSIVAMENTE sui seguenti estratti.\n\n"
-        f"{context}\n\n"
-    )
-    if conv_text:
-        prompt += f"Conversazione precedente:\n{conv_text}\n"
-    prompt += f"Domanda: {message}\n\nRisposta:"
-
-    sources = list(dict.fromkeys(c["source"] for _, c in results))
-    sources_footer = f"\n\n---\n*Fonti: {', '.join(sources)}*"
-
-    partial = ""
     new_history = history + [
         {"role": "user", "content": message},
         {"role": "assistant", "content": ""},
     ]
+
     try:
-        for token in _stream_ollama(prompt):
-            partial += token
-            new_history[-1]["content"] = partial
+        for partial, sources_footer in rag_chat_stream(message, normalised_history):
+            content = partial + (sources_footer or "")
+            new_history[-1]["content"] = content
             yield new_history
     except Exception as e:
-        new_history[-1]["content"] = f"❌ Errore nella generazione: {e}"
+        new_history[-1]["content"] = f"❌ Errore: {e}"
         yield new_history
-        return
 
-    new_history[-1]["content"] = partial + sources_footer
-    yield new_history
+
+def _rag_add_docs_wrapper(files):
+    return rag_add_docs(files, RAG_CACHE_DIR)
+
+
+def _rag_remove_doc_wrapper(filename):
+    return rag_remove_doc(filename, RAG_CACHE_DIR)
 
 
 def save_conversation_md(history: list):
@@ -2424,7 +663,7 @@ with gr.Blocks() as rag_tab:
         rag_remove_status = gr.Markdown(label="Esito rimozione")
 
         rag_upload_btn.click(
-            fn=rag_add_docs,
+            fn=_rag_add_docs_wrapper,
             inputs=rag_upload,
             outputs=[rag_upload_status, rag_doc_table],
         ).then(
@@ -2433,7 +672,7 @@ with gr.Blocks() as rag_tab:
             outputs=rag_remove_dd,
         )
         rag_remove_btn.click(
-            fn=rag_remove_doc,
+            fn=_rag_remove_doc_wrapper,
             inputs=rag_remove_dd,
             outputs=[rag_remove_status, rag_doc_table],
         ).then(
@@ -2445,8 +684,8 @@ with gr.Blocks() as rag_tab:
     with gr.Row():
         rag_model_dd = gr.Dropdown(
             label="Modello di generazione (Ollama)",
-            choices=_ollama_list_models(),
-            value=_rag_model,
+            choices=ollama_list_models(),
+            value="llama3.2",
             interactive=True,
             scale=3,
         )
@@ -2458,14 +697,13 @@ with gr.Blocks() as rag_tab:
         "Re-indicizzare i documenti per risultati ottimali.*"
     )
 
-    rag_chatbot = gr.Chatbot(
-        label="Consulente Forense IA",
-        height=500,
-    )
+    rag_chatbot = gr.Chatbot(label="Consulente Forense IA", height=500)
     rag_in = gr.Textbox(
-        placeholder="Es: Come si valuta l'inclinazione della scrittura? (Invio per inviare)"
-        if _OLLAMA_AVAILABLE
-        else "⚠️ Non disponibile su HF Spaces — esegui localmente con Ollama",
+        placeholder=(
+            "Es: Come si valuta l'inclinazione della scrittura? (Invio per inviare)"
+            if _OLLAMA_AVAILABLE
+            else "⚠️ Non disponibile su HF Spaces — esegui localmente con Ollama"
+        ),
         lines=1,
         show_label=False,
         interactive=_OLLAMA_AVAILABLE,
@@ -2496,7 +734,7 @@ with gr.Blocks() as rag_tab:
         outputs=rag_model_status,
     )
     rag_model_refresh.click(
-        fn=lambda: gr.update(choices=_ollama_list_models(), value=_rag_model),
+        fn=lambda: gr.update(choices=ollama_list_models(), value="llama3.2"),
         outputs=rag_model_dd,
     )
 
@@ -2506,22 +744,16 @@ with gr.Blocks() as rag_tab:
         fn=lambda: ([], "", gr.update(visible=False)),
         outputs=[rag_chatbot, rag_in, rag_download],
     )
-    rag_save_btn.click(
-        fn=save_conversation_md,
-        inputs=rag_chatbot,
-        outputs=rag_download,
-    )
+    rag_save_btn.click(fn=save_conversation_md, inputs=rag_chatbot, outputs=rag_download)
 
-    # Refresh table, dropdowns and model list when tab loads
     rag_tab.load(
         fn=lambda: (
             gr.update(value=_rag_doc_list()),
             gr.update(choices=_rag_doc_choices()),
-            gr.update(choices=_ollama_list_models(), value=_rag_model),
+            gr.update(choices=ollama_list_models(), value="llama3.2"),
         ),
         outputs=[rag_doc_table, rag_remove_dd, rag_model_dd],
     )
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Main App
@@ -2550,7 +782,7 @@ demo = gr.TabbedInterface(
     ),
 )
 
-_threading.Thread(target=_rag_load_docs, daemon=True).start()
+_threading.Thread(target=lambda: rag_load_docs(RAG_CACHE_DIR), daemon=True).start()
 
 if __name__ == "__main__":
     demo.launch(
