@@ -57,6 +57,8 @@ export default function ProjectDetailPage() {
   const [loading, setLoading] = useState(true)
   const [selectedDoc, setSelectedDoc] = useState<number | null>(null)
   const [runningType, setRunningType] = useState<string | null>(null)
+  const [refDoc, setRefDoc] = useState<number | null>(null)
+  const [showRefPicker, setShowRefPicker] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   async function load() {
@@ -92,9 +94,25 @@ export default function ProjectDetailPage() {
 
   async function handleRunAnalysis(type: string) {
     if (!selectedDoc) return
+    if (type === "signature_verification") {
+      setShowRefPicker(true)
+      return
+    }
     setRunningType(type)
     try {
       const { data } = await analysisApi.run(type, projectId, selectedDoc)
+      setAnalyses((a) => [data, ...a])
+    } finally {
+      setRunningType(null)
+    }
+  }
+
+  async function handleRunSigVerify() {
+    if (!selectedDoc || !refDoc) return
+    setShowRefPicker(false)
+    setRunningType("signature_verification")
+    try {
+      const { data } = await analysisApi.runSignatureVerification(projectId, selectedDoc, refDoc)
       setAnalyses((a) => [data, ...a])
     } finally {
       setRunningType(null)
@@ -105,6 +123,29 @@ export default function ProjectDetailPage() {
   if (!project) return <div className="p-6">{t("common.error")}</div>
 
   return (
+    <>
+    {showRefPicker && (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="bg-background rounded-lg p-6 w-96 space-y-4 shadow-xl">
+          <h2 className="font-semibold">{t("project.select_reference_doc")}</h2>
+          <p className="text-sm text-muted-foreground">{t("project.select_reference_doc_hint")}</p>
+          <select
+            className="w-full border rounded-md px-3 py-2 text-sm"
+            value={refDoc ?? ""}
+            onChange={(e) => setRefDoc(Number(e.target.value))}
+          >
+            <option value="">{t("project.select_reference_placeholder")}</option>
+            {documents.filter((d) => d.id !== selectedDoc).map((d) => (
+              <option key={d.id} value={d.id}>{d.filename}</option>
+            ))}
+          </select>
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" onClick={() => setShowRefPicker(false)}>{t("common.cancel")}</Button>
+            <Button disabled={!refDoc} onClick={handleRunSigVerify}>{t("project.run_analysis")}</Button>
+          </div>
+        </div>
+      </div>
+    )}
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
@@ -202,5 +243,6 @@ export default function ProjectDetailPage() {
         </div>
       </div>
     </div>
+    </>
   )
 }

@@ -59,7 +59,10 @@
       "dating": "Datazione documento"
     },
     "running": "Analisi in corso…",
-    "done": "Analisi completata"
+    "done": "Analisi completata",
+    "select_reference_doc": "Seleziona documento di riferimento",
+    "select_reference_doc_hint": "Scegli il documento che contiene la firma autentica da usare come riferimento.",
+    "select_reference_placeholder": "— seleziona documento —"
   },
   "rag": {
     "title": "Consulente Forense IA",
@@ -93,6 +96,7 @@
     "delete": "Elimina",
     "edit": "Modifica",
     "close": "Chiudi",
+    "cancel": "Annulla",
     "confirm": "Conferma",
     "back": "Indietro",
     "language": "Lingua"

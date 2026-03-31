@@ -146,8 +146,13 @@ export const projectsApi = {
 
 // Analysis
 export const analysisApi = {
-  run: (type: string, projectId: number, documentId: number) =>
-    api.post<Analysis>(`/analysis/${type.replaceAll("_", "-")}`, { project_id: projectId, document_id: documentId }),
+  run: (type: string, projectId: number, documentId: number) => {
+    const pathMap: Record<string, string> = { writer_identification: "writer" }
+    const path = pathMap[type] ?? type.replaceAll("_", "-")
+    return api.post<Analysis>(`/analysis/${path}`, { project_id: projectId, document_id: documentId })
+  },
+  runSignatureVerification: (projectId: number, documentId: number, referenceDocumentId: number) =>
+    api.post<Analysis>("/analysis/signature-verification", { project_id: projectId, document_id: documentId, reference_document_id: referenceDocumentId }),
   runPipeline: (projectId: number, documentId: number) =>
     api.post<Analysis>("/analysis/pipeline", { project_id: projectId, document_id: documentId }),
   list: (projectId: number) => api.get<Analysis[]>(`/analysis/project/${projectId}`),
