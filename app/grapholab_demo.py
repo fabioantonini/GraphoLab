@@ -90,6 +90,16 @@ _rag_ready = False
 _rag_lock = _threading.Lock()
 _RAG_CACHE_DIR = ROOT / "data" / "rag_cache"
 
+# Check Ollama availability at startup (used to show/hide the unavailability banner)
+def _check_ollama() -> bool:
+    try:
+        _requests.get(f"{OLLAMA_URL}/api/tags", timeout=3)
+        return True
+    except Exception:
+        return False
+
+_OLLAMA_AVAILABLE = _check_ollama()
+
 
 def get_trocr():
     global _trocr_processor, _trocr_model
@@ -2368,6 +2378,20 @@ with gr.Blocks() as rag_tab:
         "**modello Ollama locale** (nessun dato inviato online)."
     )
 
+    if not _OLLAMA_AVAILABLE:
+        gr.Markdown(
+            "> ⚠️ **Funzionalità non disponibile in questa demo pubblica.**\n>\n"
+            "> Il Consulente Forense IA richiede **Ollama** in esecuzione localmente (`ollama serve`).\n"
+            "> Su Hugging Face Spaces non è possibile eseguire un server LLM locale.\n>\n"
+            "> Per usare questa funzionalità, clona il repository ed eseguilo sul tuo computer:\n"
+            "> ```\n"
+            "> git clone https://github.com/fabioantonini/GraphoLab\n"
+            "> ollama pull llama3.2\n"
+            "> ollama serve\n"
+            "> python app/grapholab_demo.py\n"
+            "> ```"
+        )
+
     with gr.Accordion("📂 Gestione knowledge base", open=False):
         gr.Markdown(
             "Carica uno o più file PDF o DOCX per arricchire la knowledge base. "
@@ -2379,7 +2403,7 @@ with gr.Blocks() as rag_tab:
             file_count="multiple",
             file_types=[".pdf", ".docx", ".doc"],
         )
-        rag_upload_btn = gr.Button("Indicizza documenti", variant="secondary")
+        rag_upload_btn = gr.Button("Indicizza documenti", variant="secondary", interactive=_OLLAMA_AVAILABLE)
         rag_upload_status = gr.Markdown(label="Esito indicizzazione")
 
         gr.Markdown("### Documenti indicizzati")
@@ -2439,12 +2463,15 @@ with gr.Blocks() as rag_tab:
         height=500,
     )
     rag_in = gr.Textbox(
-        placeholder="Es: Come si valuta l'inclinazione della scrittura? (Invio per inviare)",
+        placeholder="Es: Come si valuta l'inclinazione della scrittura? (Invio per inviare)"
+        if _OLLAMA_AVAILABLE
+        else "⚠️ Non disponibile su HF Spaces — esegui localmente con Ollama",
         lines=1,
         show_label=False,
+        interactive=_OLLAMA_AVAILABLE,
     )
     with gr.Row():
-        rag_btn = gr.Button("Invia", variant="primary")
+        rag_btn = gr.Button("Invia", variant="primary", interactive=_OLLAMA_AVAILABLE)
         rag_clear_btn = gr.Button("🗑️ Cancella", variant="secondary")
         rag_save_btn = gr.Button("💾 Salva conversazione", variant="secondary")
     rag_download = gr.File(label="Download conversazione", visible=False)
