@@ -16,6 +16,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+# Exception: frontend TypeScript source lib is not a Python lib directory
+!frontend/src/lib/
 parts/
 sdist/
 var/
