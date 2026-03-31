@@ -1,0 +1,50 @@
+"""
+GraphoLab Backend — JWT token creation and verification.
+
+Access tokens: short-lived (30 min default), carry user_id + role.
+Refresh tokens: long-lived (7 days), used only to issue new access tokens.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from enum import Enum
+
+from jose import JWTError, jwt
+
+from backend.config import settings
+
+
+class TokenType(str, Enum):
+    access = "access"
+    refresh = "refresh"
+
+
+def _now() -> datetime:
+    return datetime.now(tz=timezone.utc)
+
+
+def create_access_token(user_id: int, role: str) -> str:
+    expire = _now() + timedelta(minutes=settings.access_token_expire_minutes)
+    payload = {
+        "sub": str(user_id),
+        "role": role,
+        "type": TokenType.access,
+        "exp": expire,
+    }
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+
+
+def create_refresh_token(user_id: int) -> str:
+    expire = _now() + timedelta(days=settings.refresh_token_expire_days)
+    payload = {
+        "sub": str(user_id),
+        "type": TokenType.refresh,
+        "exp": expire,
+    }
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+
+
+def decode_token(token: str) -> dict:
+    """Decode and validate a JWT. Raises JWTError on failure."""
+    return jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])

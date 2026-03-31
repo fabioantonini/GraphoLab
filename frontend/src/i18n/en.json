@@ -1,0 +1,101 @@
+{
+  "app": {
+    "name": "GraphoLab",
+    "tagline": "Forensic Graphology Laboratory"
+  },
+  "nav": {
+    "projects": "Cases",
+    "rag": "AI Consultant",
+    "admin": "Administration",
+    "profile": "Profile",
+    "logout": "Sign out"
+  },
+  "auth": {
+    "login": "Sign in",
+    "logout": "Sign out",
+    "email": "Email",
+    "password": "Password",
+    "logging_in": "Signing in…",
+    "invalid_credentials": "Incorrect email or password.",
+    "welcome_back": "Welcome back"
+  },
+  "projects": {
+    "title": "My Cases",
+    "new": "New Case",
+    "empty": "No cases yet. Create one to get started.",
+    "create_title": "Create Case",
+    "name_label": "Title",
+    "name_placeholder": "E.g. Contract examination 2024-001",
+    "description_label": "Description",
+    "description_placeholder": "Optional notes…",
+    "create": "Create",
+    "cancel": "Cancel",
+    "delete_confirm": "Delete this case? This action cannot be undone.",
+    "status": {
+      "draft": "Draft",
+      "in_progress": "In progress",
+      "completed": "Completed",
+      "archived": "Archived"
+    },
+    "documents": "{{count}} document",
+    "documents_plural": "{{count}} documents"
+  },
+  "project": {
+    "documents": "Documents",
+    "analyses": "Analyses",
+    "upload": "Upload document",
+    "upload_hint": "PNG, JPG, PDF — max 20 MB",
+    "no_documents": "No documents uploaded.",
+    "no_analyses": "No analyses run yet.",
+    "run_analysis": "Run analysis",
+    "analysis_types": {
+      "htr": "HTR Transcription",
+      "signature_detection": "Signature detection",
+      "signature_verification": "Signature verification",
+      "ner": "Named entity recognition",
+      "writer_identification": "Writer identification",
+      "graphology": "Graphological analysis",
+      "pipeline": "Full forensic pipeline",
+      "dating": "Document dating"
+    },
+    "running": "Running analysis…",
+    "done": "Analysis complete"
+  },
+  "rag": {
+    "title": "AI Forensic Consultant",
+    "placeholder": "Ask a question about the knowledge base…",
+    "send": "Send",
+    "offline": "Ollama not reachable. Start Ollama to use the chatbot.",
+    "sources": "Sources",
+    "docs_title": "Knowledge base documents",
+    "add_doc": "Add document",
+    "no_docs": "No documents loaded."
+  },
+  "admin": {
+    "users": "Users",
+    "new_user": "New user",
+    "email": "Email",
+    "full_name": "Full name",
+    "role": "Role",
+    "status": "Status",
+    "active": "Active",
+    "inactive": "Deactivated",
+    "roles": {
+      "admin": "Administrator",
+      "examiner": "Examiner",
+      "viewer": "Read-only"
+    }
+  },
+  "common": {
+    "loading": "Loading…",
+    "error": "An error occurred.",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "close": "Close",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "back": "Back",
+    "language": "Language"
+  }
+}

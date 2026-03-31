@@ -16,6 +16,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+# Exception: frontend TypeScript source lib is not a Python lib directory
+!frontend/src/lib/
 parts/
 sdist/
 var/
@@ -212,6 +214,12 @@ __marimo__/
 
 # CEDAR dataset — troppo grande per il repo (2640 immagini, 242 MB .rar)
 data/cedar/
+
+# Local dev uploads (MinIO fallback)
+data/uploads/
+
+# Local SQLite dev database
+grapholab_dev.db
 
 # Knowledge base — documenti utente (privati, non committare)
 data/knowledge/*.docx

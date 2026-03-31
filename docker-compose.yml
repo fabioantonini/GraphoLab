@@ -1,4 +1,7 @@
 services:
+
+  # ── Existing services ────────────────────────────────────────────────────────
+
   jupyter:
     build: .
     container_name: grapholab-jupyter
@@ -41,6 +44,104 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
 
+  # ── New services (Phase 1 — professional backend) ────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: grapholab-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: grapholab
+      POSTGRES_PASSWORD: grapholab
+      POSTGRES_DB: grapholab
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U grapholab"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: grapholab-minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web console → http://localhost:9001
+    environment:
+      MINIO_ROOT_USER: grapholab
+      MINIO_ROOT_PASSWORD: grapholab123
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: grapholab-backend
+    ports:
+      - "8000:8000"   # FastAPI → http://localhost:8000/docs
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://grapholab:grapholab@postgres:5432/grapholab
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=grapholab
+      - MINIO_SECRET_KEY=grapholab123
+      - MINIO_SECURE=false
+      - OLLAMA_HOST=http://ollama:11434
+      - SECRET_KEY=${SECRET_KEY:-change_me_in_production}
+      - HF_HOME=/app/cache
+    volumes:
+      - ./data:/app/data
+      - hf_cache:/app/cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: grapholab-frontend
+    ports:
+      - "3000:80"   # React SPA → http://localhost:3000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: grapholab-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+
 volumes:
   hf_cache:
     name: grapholab-hf-cache
+  postgres_data:
+    name: grapholab-postgres-data
+  minio_data:
+    name: grapholab-minio-data
+  ollama_data:
+    name: grapholab-ollama-data

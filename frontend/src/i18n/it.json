@@ -1,0 +1,104 @@
+{
+  "app": {
+    "name": "GraphoLab",
+    "tagline": "Laboratorio di Grafologia Forense"
+  },
+  "nav": {
+    "projects": "Perizie",
+    "rag": "Consulente IA",
+    "admin": "Amministrazione",
+    "profile": "Profilo",
+    "logout": "Esci"
+  },
+  "auth": {
+    "login": "Accedi",
+    "logout": "Esci",
+    "email": "Email",
+    "password": "Password",
+    "logging_in": "Accesso in corso…",
+    "invalid_credentials": "Email o password non corretti.",
+    "welcome_back": "Bentornato"
+  },
+  "projects": {
+    "title": "Le mie Perizie",
+    "new": "Nuova Perizia",
+    "empty": "Nessuna perizia ancora. Creane una per iniziare.",
+    "create_title": "Crea Perizia",
+    "name_label": "Titolo",
+    "name_placeholder": "Es. Perizia contratto 2024-001",
+    "description_label": "Descrizione",
+    "description_placeholder": "Note opzionali…",
+    "create": "Crea",
+    "cancel": "Annulla",
+    "delete_confirm": "Eliminare questa perizia? L'operazione non è reversibile.",
+    "status": {
+      "draft": "Bozza",
+      "in_progress": "In lavorazione",
+      "completed": "Completata",
+      "archived": "Archiviata"
+    },
+    "documents": "{{count}} documento",
+    "documents_plural": "{{count}} documenti"
+  },
+  "project": {
+    "documents": "Documenti",
+    "analyses": "Analisi",
+    "upload": "Carica documento",
+    "upload_hint": "PNG, JPG, PDF — max 20 MB",
+    "no_documents": "Nessun documento caricato.",
+    "no_analyses": "Nessuna analisi eseguita.",
+    "run_analysis": "Esegui analisi",
+    "analysis_types": {
+      "htr": "Trascrizione HTR",
+      "signature_detection": "Rilevamento firma",
+      "signature_verification": "Verifica firma",
+      "ner": "Riconoscimento entità",
+      "writer_identification": "Identificazione scrittore",
+      "graphology": "Analisi grafologica",
+      "pipeline": "Perizia forense completa",
+      "dating": "Datazione documento"
+    },
+    "running": "Analisi in corso…",
+    "done": "Analisi completata",
+    "select_reference_doc": "Seleziona documento di riferimento",
+    "select_reference_doc_hint": "Scegli il documento che contiene la firma autentica da usare come riferimento.",
+    "select_reference_placeholder": "— seleziona documento —"
+  },
+  "rag": {
+    "title": "Consulente Forense IA",
+    "placeholder": "Fai una domanda alla knowledge base…",
+    "send": "Invia",
+    "offline": "Ollama non raggiungibile. Avvia Ollama per usare il chatbot.",
+    "sources": "Fonti",
+    "docs_title": "Documenti nella knowledge base",
+    "add_doc": "Aggiungi documento",
+    "no_docs": "Nessun documento caricato."
+  },
+  "admin": {
+    "users": "Utenti",
+    "new_user": "Nuovo utente",
+    "email": "Email",
+    "full_name": "Nome completo",
+    "role": "Ruolo",
+    "status": "Stato",
+    "active": "Attivo",
+    "inactive": "Disattivato",
+    "roles": {
+      "admin": "Amministratore",
+      "examiner": "Perito",
+      "viewer": "Sola lettura"
+    }
+  },
+  "common": {
+    "loading": "Caricamento…",
+    "error": "Si è verificato un errore.",
+    "save": "Salva",
+    "delete": "Elimina",
+    "edit": "Modifica",
+    "close": "Chiudi",
+    "cancel": "Annulla",
+    "confirm": "Conferma",
+    "back": "Indietro",
+    "language": "Lingua"
+  }
+}
