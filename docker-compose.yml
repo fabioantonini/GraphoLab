@@ -116,6 +116,17 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: grapholab-frontend
+    ports:
+      - "3000:80"   # React SPA → http://localhost:3000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
   ollama:
     image: ollama/ollama:latest
     container_name: grapholab-ollama
