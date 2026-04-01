@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import { useParams, useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 import { ArrowLeft, Upload, Play, Trash2, FileText, ChevronDown, ChevronUp, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { analysisApi, projectsApi, type Analysis, type Document, type Project } from "@/lib/api"
+import { api, analysisApi, projectsApi, type Analysis, type Document, type Project } from "@/lib/api"
 
 const ANALYSIS_TYPES = [
   "htr",
@@ -21,6 +23,15 @@ const ANALYSIS_TYPES = [
 function AnalysisCard({ analysis }: { analysis: Analysis }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
+  const [imgSrc, setImgSrc] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open || !analysis.result_storage_key) return
+    if (imgSrc) return // already loaded
+    api.get<Blob>(`/analysis/${analysis.id}/image`, { responseType: "blob" })
+      .then(({ data }) => setImgSrc(URL.createObjectURL(data)))
+      .catch(() => setImgSrc(null))
+  }, [open, analysis.result_storage_key, analysis.id])
 
   return (
     <Card>
@@ -34,11 +45,20 @@ function AnalysisCard({ analysis }: { analysis: Analysis }) {
           </Button>
         </div>
       </CardHeader>
-      {open && analysis.result_text && (
-        <CardContent className="pt-0 px-4 pb-4">
-          <pre className="text-xs bg-muted rounded p-3 whitespace-pre-wrap overflow-auto max-h-80">
-            {analysis.result_text}
-          </pre>
+      {open && (
+        <CardContent className="pt-0 px-4 pb-4 space-y-3">
+          {analysis.result_storage_key && imgSrc && (
+            <img
+              src={imgSrc}
+              alt="Immagine annotata"
+              className="w-full rounded border object-contain max-h-96"
+            />
+          )}
+          {analysis.result_text && (
+            <div className="text-xs prose prose-sm max-w-none overflow-auto max-h-80 [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:bg-muted [&_td]:border [&_td]:px-2 [&_td]:py-1">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{analysis.result_text}</ReactMarkdown>
+            </div>
+          )}
         </CardContent>
       )}
     </Card>

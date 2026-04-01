@@ -37,7 +37,7 @@ from backend.config import settings
 from backend.database import get_db
 from backend.models.project import Analysis, AnalysisType, Document, Project
 from backend.models.user import Role, User
-from backend.storage.minio_client import download_object
+from backend.storage.minio_client import download_object, upload_fileobj
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 
@@ -59,6 +59,7 @@ class AnalysisOut(BaseModel):
     id: int
     analysis_type: AnalysisType
     result_text: str | None
+    result_storage_key: str | None
     project_id: int
     document_id: int | None
 
@@ -94,16 +95,31 @@ async def _check_project_access(project_id: int, db: AsyncSession, user: User) -
     return project
 
 
+async def _numpy_to_png(image: np.ndarray) -> bytes:
+    """Convert a numpy RGB array to PNG bytes."""
+    buf = io.BytesIO()
+    Image.fromarray(image.astype("uint8")).save(buf, format="PNG")
+    return buf.getvalue()
+
+
 async def _save_analysis(
     db: AsyncSession,
     project_id: int,
     doc_id: int | None,
     analysis_type: AnalysisType,
     result_text: str,
+    result_image: np.ndarray | None = None,
 ) -> Analysis:
+    storage_key: str | None = None
+    if result_image is not None:
+        storage_key = f"projects/{project_id}/analyses/{analysis_type.value}_annotated.png"
+        png_bytes = await _numpy_to_png(result_image)
+        await upload_fileobj(storage_key, png_bytes, "image/png")
+
     analysis = Analysis(
         analysis_type=analysis_type,
         result_text=result_text,
+        result_storage_key=storage_key,
         project_id=project_id,
         document_id=doc_id,
     )
@@ -141,10 +157,10 @@ async def run_signature_detection(
     image = await _load_image(doc)
 
     from core.signature import detect_and_crop
-    _, _, summary = detect_and_crop(image)
+    annotated, _, summary = detect_and_crop(image)
 
     return await _save_analysis(
-        db, body.project_id, doc.id, AnalysisType.signature_detection, summary
+        db, body.project_id, doc.id, AnalysisType.signature_detection, summary, annotated
     )
 
 
@@ -219,10 +235,10 @@ async def run_graphology(
     image = await _load_image(doc)
 
     from core.graphology import grapho_analyse
-    report, _ = grapho_analyse(image)
+    report, annotated = grapho_analyse(image)
 
     return await _save_analysis(
-        db, body.project_id, doc.id, AnalysisType.graphology, report
+        db, body.project_id, doc.id, AnalysisType.graphology, report, annotated
     )
 
 
@@ -294,3 +310,20 @@ async def clear_analyses(
     await _check_project_access(project_id, db, current_user)
     await db.execute(delete(Analysis).where(Analysis.project_id == project_id))
     await db.commit()
+
+
+@router.get("/{analysis_id}/image")
+async def get_analysis_image(
+    analysis_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    result = await db.execute(select(Analysis).where(Analysis.id == analysis_id))
+    analysis = result.scalar_one_or_none()
+    if analysis is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analisi non trovata.")
+    await _check_project_access(analysis.project_id, db, current_user)
+    if not analysis.result_storage_key:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Nessuna immagine disponibile.")
+    data = await download_object(analysis.result_storage_key)
+    return StreamingResponse(io.BytesIO(data), media_type="image/png")

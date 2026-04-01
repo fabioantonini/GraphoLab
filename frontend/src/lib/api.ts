@@ -99,6 +99,7 @@ export interface Analysis {
   id: number
   analysis_type: string
   result_text: string | null
+  result_storage_key: string | null
   project_id: number
   document_id: number | null
 }
@@ -157,6 +158,7 @@ export const analysisApi = {
     api.post<Analysis>("/analysis/pipeline", { project_id: projectId, document_id: documentId }),
   list: (projectId: number) => api.get<Analysis[]>(`/analysis/project/${projectId}`),
   clearAll: (projectId: number) => api.delete(`/analysis/project/${projectId}`),
+  imageUrl: (analysisId: number) => `/api/analysis/${analysisId}/image`,
 }
 
 // RAG
