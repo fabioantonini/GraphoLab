@@ -282,8 +282,44 @@ async def run_pipeline(
     ):
         pass  # consume generator to completion
 
-    report = results.final_report if results else "Pipeline non completata."
-    return await _save_analysis(db, body.project_id, doc.id, AnalysisType.pipeline, report)
+    if not results:
+        return await _save_analysis(db, body.project_id, doc.id, AnalysisType.pipeline, "Pipeline non completata.")
+
+    # Save step images to storage and embed placeholder markers in the report
+    sig_key: str | None = None
+    grapho_key: str | None = None
+    if results.sig_detect_image is not None:
+        sig_key = f"projects/{body.project_id}/pipeline/step1_signature.png"
+        await upload_fileobj(sig_key, await _numpy_to_png(results.sig_detect_image), "image/png")
+    if results.grapho_image is not None:
+        grapho_key = f"projects/{body.project_id}/pipeline/step5_graphology.png"
+        await upload_fileobj(grapho_key, await _numpy_to_png(results.grapho_image), "image/png")
+
+    # Build report with image markers that the frontend can replace
+    report = results.final_report
+    if sig_key:
+        report = report.replace(
+            "### Step 1 — Rilevamento Firma\n",
+            f"### Step 1 — Rilevamento Firma\n\n![sig_detect](__img_sig__)\n\n",
+        )
+    if grapho_key:
+        report = report.replace(
+            "### Step 5 — Caratteristiche Grafologiche\n",
+            f"### Step 5 — Caratteristiche Grafologiche\n\n![grapho](__img_grapho__)\n\n",
+        )
+
+    # Pass None for result_image so no result_storage_key is set — images are embedded inline in the report
+    analysis = await _save_analysis(db, body.project_id, doc.id, AnalysisType.pipeline, report, None)
+
+    # Store grapho image key as secondary (overwrite storage key with sig, store grapho separately)
+    # We embed both keys in the report text so the frontend can fetch them by analysis id
+    if grapho_key:
+        analysis.result_text = analysis.result_text.replace("__img_grapho__", f"/api/analysis/{analysis.id}/image/grapho") if analysis.result_text else analysis.result_text
+    if sig_key:
+        analysis.result_text = analysis.result_text.replace("__img_sig__", f"/api/analysis/{analysis.id}/image/sig") if analysis.result_text else analysis.result_text
+    await db.flush()
+
+    return analysis
 
 
 @router.get("/project/{project_id}", response_model=list[AnalysisOut])
@@ -326,4 +362,27 @@ async def get_analysis_image(
     if not analysis.result_storage_key:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Nessuna immagine disponibile.")
     data = await download_object(analysis.result_storage_key)
+    return StreamingResponse(io.BytesIO(data), media_type="image/png")
+
+
+@router.get("/{analysis_id}/image/{slot}")
+async def get_analysis_image_slot(
+    analysis_id: int,
+    slot: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    result = await db.execute(select(Analysis).where(Analysis.id == analysis_id))
+    analysis = result.scalar_one_or_none()
+    if analysis is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analisi non trovata.")
+    await _check_project_access(analysis.project_id, db, current_user)
+    slot_map = {
+        "sig": f"projects/{analysis.project_id}/pipeline/step1_signature.png",
+        "grapho": f"projects/{analysis.project_id}/pipeline/step5_graphology.png",
+    }
+    key = slot_map.get(slot)
+    if not key:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Slot non valido.")
+    data = await download_object(key)
     return StreamingResponse(io.BytesIO(data), media_type="image/png")

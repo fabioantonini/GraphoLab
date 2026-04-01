@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { useParams, useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
-import { ArrowLeft, Upload, Play, Trash2, FileText, ChevronDown, ChevronUp, X } from "lucide-react"
+import { ArrowLeft, Upload, Play, Trash2, FileText, ChevronDown, ChevronUp, X, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -19,6 +19,20 @@ const ANALYSIS_TYPES = [
   "pipeline",
   "dating",
 ]
+
+/** Fetches an authenticated image URL and returns a blob URL */
+function AuthImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
+  const [blobSrc, setBlobSrc] = useState<string | null>(null)
+  useEffect(() => {
+    // Strip /api prefix since axios baseURL already includes it
+    const path = src.startsWith("/api/") ? src.slice(4) : src
+    api.get<Blob>(path, { responseType: "blob" })
+      .then(({ data }) => setBlobSrc(URL.createObjectURL(data)))
+      .catch(() => setBlobSrc(null))
+  }, [src])
+  if (!blobSrc) return null
+  return <img src={blobSrc} alt={alt} className={className} />
+}
 
 function AnalysisCard({ analysis }: { analysis: Analysis }) {
   const { t } = useTranslation()
@@ -55,8 +69,15 @@ function AnalysisCard({ analysis }: { analysis: Analysis }) {
             />
           )}
           {analysis.result_text && (
-            <div className="text-xs prose prose-sm max-w-none overflow-auto max-h-80 [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:bg-muted [&_td]:border [&_td]:px-2 [&_td]:py-1">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{analysis.result_text}</ReactMarkdown>
+            <div className="text-xs prose prose-sm max-w-none overflow-auto max-h-[600px] [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:bg-muted [&_td]:border [&_td]:px-2 [&_td]:py-1 [&_h3]:mt-4 [&_h3]:mb-1 [&_hr]:my-3">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  img: ({ src, alt }) => src ? (
+                    <AuthImage src={src} alt={alt ?? ""} className="w-full rounded border object-contain max-h-96 my-2" />
+                  ) : null,
+                }}
+              >{analysis.result_text}</ReactMarkdown>
             </div>
           )}
         </CardContent>
@@ -245,7 +266,10 @@ export default function ProjectDetailPage() {
                   onClick={() => handleRunAnalysis(type)}
                 >
                   {runningType === type ? (
-                    <span className="text-muted-foreground">{t("project.running")}</span>
+                    <>
+                      <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                      <span className="text-muted-foreground">{t("project.running")}</span>
+                    </>
                   ) : (
                     <>
                       <Play className="h-3 w-3 mr-2" />
