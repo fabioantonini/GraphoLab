@@ -170,6 +170,23 @@ def run_pipeline_steps(
         results.grapho_report,
         results.sig_verify_report,
     )
+
+    # Update final_report to include LLM synthesis
+    results.final_report = (
+        "## Referto Forense Integrato\n\n"
+        "---\n\n"
+        f"### Step 1 — Rilevamento Firma\n{results.sig_detect_summary}\n\n"
+        f"### Step 2 — Trascrizione HTR\n```\n{results.htr_text}\n```\n\n"
+        f"### Step 3 — Entità Nominate\n{results.ner_summary}\n\n"
+        f"### Step 4 — Identificazione Scrittore\n{results.writer_report}\n\n"
+        f"### Step 5 — Caratteristiche Grafologiche\n{results.grapho_report}\n\n"
+        f"### Step 6 — Verifica Firma\n{results.sig_verify_report}\n\n"
+        f"### Step 7 — Valutazione LLM (Ollama)\n{results.llm_report}\n\n"
+        "---\n\n"
+        "*Referto generato automaticamente da GraphoLab. "
+        "Tutti i risultati hanno carattere indicativo e devono essere valutati "
+        "da un perito calligrafo qualificato.*"
+    )
     yield results
 
 
