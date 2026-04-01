@@ -156,6 +156,7 @@ export const analysisApi = {
   runPipeline: (projectId: number, documentId: number) =>
     api.post<Analysis>("/analysis/pipeline", { project_id: projectId, document_id: documentId }),
   list: (projectId: number) => api.get<Analysis[]>(`/analysis/project/${projectId}`),
+  clearAll: (projectId: number) => api.delete(`/analysis/project/${projectId}`),
 }
 
 // RAG

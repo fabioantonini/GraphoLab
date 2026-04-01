@@ -29,7 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from PIL import Image
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.auth.dependencies import get_current_user
@@ -283,3 +283,14 @@ async def list_analyses(
         .order_by(Analysis.created_at.desc())
     )
     return result.scalars().all()
+
+
+@router.delete("/project/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_analyses(
+    project_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    await _check_project_access(project_id, db, current_user)
+    await db.execute(delete(Analysis).where(Analysis.project_id == project_id))
+    await db.commit()

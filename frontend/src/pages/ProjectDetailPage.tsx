@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
-import { ArrowLeft, Upload, Play, Trash2, FileText, ChevronDown, ChevronUp } from "lucide-react"
+import { ArrowLeft, Upload, Play, Trash2, FileText, ChevronDown, ChevronUp, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -119,6 +119,12 @@ export default function ProjectDetailPage() {
     }
   }
 
+  async function handleClearAnalyses() {
+    if (!confirm(t("project.clear_analyses_confirm"))) return
+    await analysisApi.clearAll(projectId)
+    setAnalyses([])
+  }
+
   if (loading) return <div className="p-6 text-muted-foreground">{t("common.loading")}</div>
   if (!project) return <div className="p-6">{t("common.error")}</div>
 
@@ -234,7 +240,15 @@ export default function ProjectDetailPage() {
 
         {/* Right column: analyses results */}
         <div className="lg:col-span-2 space-y-3">
-          <h2 className="text-sm font-medium text-muted-foreground">{t("project.analyses")}</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-medium text-muted-foreground">{t("project.analyses")}</h2>
+            {analyses.length > 0 && (
+              <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive hover:text-destructive gap-1" onClick={handleClearAnalyses}>
+                <X className="h-3 w-3" />
+                {t("project.clear_analyses")}
+              </Button>
+            )}
+          </div>
           {analyses.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t("project.no_analyses")}</p>
           ) : (

@@ -58,6 +58,8 @@
       "pipeline": "Full forensic pipeline",
       "dating": "Document dating"
     },
+    "clear_analyses": "Clear analyses",
+    "clear_analyses_confirm": "Delete all analyses for this case? This cannot be undone.",
     "running": "Running analysis…",
     "done": "Analysis complete"
   },
