@@ -9,16 +9,18 @@ Endpoints:
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.audit import log_event
 from backend.auth.jwt import TokenType, create_access_token, create_refresh_token, decode_token
 from backend.auth.password import verify_password
 from backend.database import get_db
+from backend.models.audit import AuditAction
 from backend.models.user import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -36,6 +38,7 @@ class RefreshRequest(BaseModel):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(
+    request: Request,
     form: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
@@ -53,6 +56,11 @@ async def login(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account disabilitato. Contatta l'amministratore.",
         )
+
+    await log_event(
+        db, user, AuditAction.login,
+        ip_address=request.client.host if request.client else None,
+    )
 
     return TokenResponse(
         access_token=create_access_token(user.id, user.role),

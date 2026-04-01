@@ -33,9 +33,11 @@ from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.audit import log_event
 from backend.auth.dependencies import get_current_user
 from backend.config import settings
 from backend.database import get_db
+from backend.models.audit import AuditAction
 from backend.models.project import Analysis, AnalysisType, Document, Project
 from backend.models.user import Role, User
 from backend.storage.minio_client import download_object, upload_fileobj
@@ -150,7 +152,10 @@ async def run_htr(
     from core.ocr import htr_transcribe
     text = htr_transcribe(image)
 
-    return await _save_analysis(db, body.project_id, doc.id, AnalysisType.htr, text)
+    result = await _save_analysis(db, body.project_id, doc.id, AnalysisType.htr, text)
+    await log_event(db, current_user, AuditAction.analysis_run,
+                    resource_type="analysis", resource_id=result.id, detail="htr")
+    return result
 
 
 @router.post("/signature-detection", response_model=AnalysisOut, status_code=status.HTTP_201_CREATED)
@@ -166,9 +171,12 @@ async def run_signature_detection(
     from core.signature import detect_and_crop
     annotated, _, summary = detect_and_crop(image)
 
-    return await _save_analysis(
+    result = await _save_analysis(
         db, body.project_id, doc.id, AnalysisType.signature_detection, summary, annotated
     )
+    await log_event(db, current_user, AuditAction.analysis_run,
+                    resource_type="analysis", resource_id=result.id, detail="signature_detection")
+    return result
 
 
 @router.post("/signature-verification", response_model=AnalysisOut, status_code=status.HTTP_201_CREATED)
@@ -190,9 +198,12 @@ async def run_signature_verification(
 
     report, _ = sig_verify(ref_image, None, query, settings.signet_weights)
 
-    return await _save_analysis(
+    result = await _save_analysis(
         db, body.project_id, doc.id, AnalysisType.signature_verification, report
     )
+    await log_event(db, current_user, AuditAction.analysis_run,
+                    resource_type="analysis", resource_id=result.id, detail="signature_verification")
+    return result
 
 
 @router.post("/ner", response_model=AnalysisOut, status_code=status.HTTP_201_CREATED)
@@ -210,7 +221,10 @@ async def run_ner(
     text = htr_transcribe(image)
     _, ner_summary = ner_extract(text)
 
-    return await _save_analysis(db, body.project_id, doc.id, AnalysisType.ner, ner_summary)
+    result = await _save_analysis(db, body.project_id, doc.id, AnalysisType.ner, ner_summary)
+    await log_event(db, current_user, AuditAction.analysis_run,
+                    resource_type="analysis", resource_id=result.id, detail="ner")
+    return result
 
 
 @router.post("/writer", response_model=AnalysisOut, status_code=status.HTTP_201_CREATED)
@@ -226,9 +240,12 @@ async def run_writer_identification(
     from core.writer import writer_identify
     report, _ = writer_identify(image, settings.writer_samples_dir)
 
-    return await _save_analysis(
+    result = await _save_analysis(
         db, body.project_id, doc.id, AnalysisType.writer_identification, report
     )
+    await log_event(db, current_user, AuditAction.analysis_run,
+                    resource_type="analysis", resource_id=result.id, detail="writer_identification")
+    return result
 
 
 @router.post("/graphology", response_model=AnalysisOut, status_code=status.HTTP_201_CREATED)
@@ -244,9 +261,12 @@ async def run_graphology(
     from core.graphology import grapho_analyse
     report, annotated = grapho_analyse(image)
 
-    return await _save_analysis(
+    result = await _save_analysis(
         db, body.project_id, doc.id, AnalysisType.graphology, report, annotated
     )
+    await log_event(db, current_user, AuditAction.analysis_run,
+                    resource_type="analysis", resource_id=result.id, detail="graphology")
+    return result
 
 
 @router.post("/dating", response_model=AnalysisOut, status_code=status.HTTP_201_CREATED)
@@ -264,11 +284,14 @@ async def run_dating(
     text = htr_transcribe(image)
     dates = extract_dates(text)
     if dates:
-        result = "\n".join(f"- {raw} → {dt.strftime('%Y-%m-%d')}" for raw, dt in dates)
+        dating_result = "\n".join(f"- {raw} → {dt.strftime('%Y-%m-%d')}" for raw, dt in dates)
     else:
-        result = "Nessuna data rilevata nel documento."
+        dating_result = "Nessuna data rilevata nel documento."
 
-    return await _save_analysis(db, body.project_id, doc.id, AnalysisType.dating, result)
+    saved = await _save_analysis(db, body.project_id, doc.id, AnalysisType.dating, dating_result)
+    await log_event(db, current_user, AuditAction.analysis_run,
+                    resource_type="analysis", resource_id=saved.id, detail="dating")
+    return saved
 
 
 @router.post("/pipeline", response_model=AnalysisOut, status_code=status.HTTP_201_CREATED)
@@ -331,6 +354,8 @@ async def run_pipeline(
         analysis.result_text = analysis.result_text.replace("__img_sig__", f"/api/analysis/{analysis.id}/image/sig") if analysis.result_text else analysis.result_text
     await db.flush()
 
+    await log_event(db, current_user, AuditAction.analysis_run,
+                    resource_type="analysis", resource_id=analysis.id, detail="pipeline")
     return analysis
 
 
@@ -357,6 +382,8 @@ async def clear_analyses(
 ) -> None:
     await _check_project_access(project_id, db, current_user)
     await db.execute(delete(Analysis).where(Analysis.project_id == project_id))
+    await log_event(db, current_user, AuditAction.analysis_clear,
+                    resource_type="project", resource_id=project_id)
     await db.commit()
 
 
@@ -414,6 +441,8 @@ async def get_analysis_pdf(
     if not analysis.result_text:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Nessun testo disponibile.")
 
+    await log_event(db, current_user, AuditAction.pdf_download,
+                    resource_type="analysis", resource_id=analysis_id)
     pdf_bytes = await anyio.to_thread.run_sync(lambda: _generate_pdf(analysis))
     return StreamingResponse(
         io.BytesIO(pdf_bytes),

@@ -22,8 +22,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from backend.audit import log_event
 from backend.auth.dependencies import get_current_user
 from backend.database import get_db
+from backend.models.audit import AuditAction
 from backend.models.project import Document, Project, ProjectStatus
 from backend.models.user import Role, User
 from backend.storage.minio_client import delete_object, upload_fileobj
@@ -122,6 +124,8 @@ async def create_project(
     )
     db.add(project)
     await db.flush()
+    await log_event(db, current_user, AuditAction.project_create,
+                    resource_type="project", resource_id=project.id, detail=body.title)
     project.document_count = 0
     return project
 
@@ -163,6 +167,8 @@ async def delete_project(
     current_user: User = Depends(get_current_user),
 ) -> None:
     project = await _get_project_or_404(project_id, db, current_user)
+    await log_event(db, current_user, AuditAction.project_delete,
+                    resource_type="project", resource_id=project_id, detail=project.title)
     # Remove files from MinIO
     for doc in project.documents:
         await delete_object(doc.storage_key)
@@ -195,6 +201,8 @@ async def upload_document(
     )
     db.add(doc)
     await db.flush()
+    await log_event(db, current_user, AuditAction.document_upload,
+                    resource_type="document", resource_id=doc.id, detail=file.filename)
     return doc
 
 
@@ -222,5 +230,7 @@ async def delete_document(
     doc = result.scalar_one_or_none()
     if doc is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Documento non trovato.")
+    await log_event(db, current_user, AuditAction.document_delete,
+                    resource_type="document", resource_id=doc_id, detail=doc.filename)
     await delete_object(doc.storage_key)
     await db.delete(doc)

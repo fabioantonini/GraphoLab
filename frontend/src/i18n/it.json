@@ -81,6 +81,7 @@
   },
   "admin": {
     "users": "Utenti",
+    "audit": "Registro attività",
     "new_user": "Nuovo utente",
     "email": "Email",
     "full_name": "Nome completo",
@@ -92,7 +93,30 @@
       "admin": "Amministratore",
       "examiner": "Perito",
       "viewer": "Sola lettura"
-    }
+    },
+    "audit_timestamp": "Data/Ora",
+    "audit_user": "Utente",
+    "audit_action": "Azione",
+    "audit_resource": "Risorsa",
+    "audit_detail": "Dettaglio",
+    "audit_ip": "IP",
+    "audit_actions": {
+      "login": "Login",
+      "project_create": "Perizia creata",
+      "project_delete": "Perizia eliminata",
+      "document_upload": "Documento caricato",
+      "document_delete": "Documento eliminato",
+      "analysis_run": "Analisi eseguita",
+      "analysis_clear": "Analisi cancellate",
+      "pdf_download": "PDF scaricato"
+    },
+    "audit_empty": "Nessuna attività registrata.",
+    "audit_filter_action": "Filtra per azione",
+    "audit_filter_user": "Filtra per email",
+    "audit_all_actions": "Tutte le azioni",
+    "audit_prev": "Precedente",
+    "audit_next": "Successivo",
+    "audit_page": "Pagina {{page}} — {{total}} eventi"
   },
   "common": {
     "loading": "Caricamento…",

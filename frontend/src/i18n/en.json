@@ -81,6 +81,7 @@
   },
   "admin": {
     "users": "Users",
+    "audit": "Activity log",
     "new_user": "New user",
     "email": "Email",
     "full_name": "Full name",
@@ -92,7 +93,30 @@
       "admin": "Administrator",
       "examiner": "Examiner",
       "viewer": "Read-only"
-    }
+    },
+    "audit_timestamp": "Date/Time",
+    "audit_user": "User",
+    "audit_action": "Action",
+    "audit_resource": "Resource",
+    "audit_detail": "Detail",
+    "audit_ip": "IP",
+    "audit_actions": {
+      "login": "Login",
+      "project_create": "Case created",
+      "project_delete": "Case deleted",
+      "document_upload": "Document uploaded",
+      "document_delete": "Document deleted",
+      "analysis_run": "Analysis run",
+      "analysis_clear": "Analyses cleared",
+      "pdf_download": "PDF downloaded"
+    },
+    "audit_empty": "No activity recorded.",
+    "audit_filter_action": "Filter by action",
+    "audit_filter_user": "Filter by email",
+    "audit_all_actions": "All actions",
+    "audit_prev": "Previous",
+    "audit_next": "Next",
+    "audit_page": "Page {{page}} — {{total}} events"
   },
   "common": {
     "loading": "Loading…",

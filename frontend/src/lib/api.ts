@@ -161,6 +161,33 @@ export const analysisApi = {
   imageUrl: (analysisId: number) => `/api/analysis/${analysisId}/image`,
 }
 
+// Audit
+export interface AuditLogEntry {
+  id: number
+  timestamp: string
+  user_id: number | null
+  user_email: string
+  action: string
+  resource_type: string | null
+  resource_id: number | null
+  detail: string | null
+  ip_address: string | null
+}
+
+export interface AuditPage {
+  total: number
+  items: AuditLogEntry[]
+}
+
+export const auditApi = {
+  list: (page = 1, pageSize = 50, action?: string, userEmail?: string) => {
+    const params: Record<string, string | number> = { page, page_size: pageSize }
+    if (action) params.action = action
+    if (userEmail) params.user_email = userEmail
+    return api.get<AuditPage>("/audit/", { params })
+  },
+}
+
 // RAG
 export const ragApi = {
   status: () => api.get<{ ollama_reachable: boolean; models: string[] }>("/rag/status"),
