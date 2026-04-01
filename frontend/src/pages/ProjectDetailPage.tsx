@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { useParams, useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
-import { ArrowLeft, Upload, Play, Trash2, FileText, ChevronDown, ChevronUp, X, Loader2 } from "lucide-react"
+import { ArrowLeft, Upload, Play, Trash2, FileText, ChevronDown, ChevronUp, X, Loader2, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -54,9 +54,28 @@ function AnalysisCard({ analysis }: { analysis: Analysis }) {
           <CardTitle className="text-sm font-medium">
             {t(`project.analysis_types.${analysis.analysis_type}`)}
           </CardTitle>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setOpen((o) => !o)}>
-            {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          </Button>
+          <div className="flex items-center gap-1">
+            {analysis.analysis_type === "pipeline" && (
+              <Button
+                variant="ghost" size="sm" className="h-7 text-xs gap-1"
+                onClick={() => {
+                  api.get<Blob>(`/analysis/${analysis.id}/pdf`, { responseType: "blob" })
+                    .then(({ data }) => {
+                      const url = URL.createObjectURL(data)
+                      const a = document.createElement("a")
+                      a.href = url; a.download = `referto_${analysis.id}.pdf`; a.click()
+                      URL.revokeObjectURL(url)
+                    })
+                }}
+              >
+                <Download className="h-3 w-3" />
+                PDF
+              </Button>
+            )}
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setOpen((o) => !o)}>
+              {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </Button>
+          </div>
         </div>
       </CardHeader>
       {open && (

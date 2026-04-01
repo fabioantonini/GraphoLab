@@ -24,6 +24,7 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
+import anyio
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -397,3 +398,208 @@ async def get_analysis_image_slot(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Slot non valido.")
     data = await download_object(key)
     return StreamingResponse(io.BytesIO(data), media_type="image/png")
+
+
+@router.get("/{analysis_id}/pdf")
+async def get_analysis_pdf(
+    analysis_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    result = await db.execute(select(Analysis).where(Analysis.id == analysis_id))
+    analysis = result.scalar_one_or_none()
+    if analysis is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analisi non trovata.")
+    await _check_project_access(analysis.project_id, db, current_user)
+    if not analysis.result_text:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Nessun testo disponibile.")
+
+    pdf_bytes = await anyio.to_thread.run_sync(lambda: _generate_pdf(analysis))
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=referto_{analysis_id}.pdf"},
+    )
+
+
+def _generate_pdf(analysis: Analysis) -> bytes:
+    import re
+    from datetime import datetime
+    from fpdf import FPDF
+    from PIL import Image as PILImage
+    from backend.storage.minio_client import _download_sync
+
+    # Storage keys for pipeline images
+    _slot_map = {
+        "sig": f"projects/{analysis.project_id}/pipeline/step1_signature.png",
+        "grapho": f"projects/{analysis.project_id}/pipeline/step5_graphology.png",
+    }
+
+    def _t(text: str) -> str:
+        """Sanitize text to latin-1 and strip basic markdown formatting."""
+        if not text:
+            return ""
+        replacements = {
+            "\u2014": "-", "\u2013": "-", "\u2018": "'", "\u2019": "'",
+            "\u201c": '"', "\u201d": '"', "\u2026": "...", "\u2022": "*",
+            "\u2713": "v", "\u2714": "v", "\u2718": "x",
+            "\U0001f947": "1.", "\U0001f948": "2.", "\U0001f949": "3.",
+            "\u26a0\ufe0f": "(!)", "\u26a0": "(!)",
+            "\U0001f50d": "", "\U0001f5d1": "",
+        }
+        for src, dst in replacements.items():
+            text = text.replace(src, dst)
+        text = re.sub(r"\*{1,2}(.+?)\*{1,2}", r"\1", text)
+        text = re.sub(r"\*+", "", text)  # remove orphaned asterisks (e.g. from LLM **label**: pattern)
+        text = re.sub(r"`{1,3}[^`]*`{1,3}", "", text)
+        return text.encode("latin-1", errors="replace").decode("latin-1")
+
+    def _embed_image(pdf: FPDF, img_bytes: bytes, max_w: float = 170.0) -> None:
+        try:
+            buf_in = io.BytesIO(img_bytes)
+            img = PILImage.open(buf_in).convert("RGB")
+            w, h = img.size
+            ratio = min(max_w / w, 100.0 / h)
+            disp_w, disp_h = w * ratio, h * ratio
+            buf_out = io.BytesIO()
+            img.save(buf_out, format="JPEG", quality=85)
+            buf_out.seek(0)
+            x = (210 - disp_w) / 2
+            pdf.image(buf_out, x=x, w=disp_w, h=disp_h)
+            pdf.ln(4)
+        except Exception:
+            pass
+
+    def _render_table(pdf: FPDF, rows: list[list[str]]) -> None:
+        if not rows:
+            return
+        n_cols = max(len(r) for r in rows)
+        if n_cols == 0:
+            return
+        col_w = 190.0 / n_cols
+        for row_idx, row in enumerate(rows):
+            is_header = row_idx == 0
+            if is_header:
+                pdf.set_font("Helvetica", "B", 9)
+                pdf.set_fill_color(210, 225, 240)
+            else:
+                pdf.set_font("Helvetica", "", 9)
+                if row_idx % 2 == 0:
+                    pdf.set_fill_color(245, 248, 252)
+                else:
+                    pdf.set_fill_color(255, 255, 255)
+            pdf.set_text_color(30, 30, 30)
+            for c_idx in range(n_cols):
+                cell_text = _t(row[c_idx]) if c_idx < len(row) else ""
+                pdf.cell(col_w, 6, cell_text, border=1, fill=True)
+            pdf.ln()
+        pdf.ln(4)
+
+    class ReportPDF(FPDF):
+        def header(self):
+            self.set_font("Helvetica", "B", 10)
+            self.set_text_color(80, 80, 80)
+            self.cell(0, 8, "GraphoLab - Referto Forense Integrato", align="C")
+            self.ln(2)
+            self.set_draw_color(180, 180, 180)
+            self.line(10, self.get_y(), 200, self.get_y())
+            self.ln(4)
+
+        def footer(self):
+            self.set_y(-15)
+            self.set_font("Helvetica", "I", 8)
+            self.set_text_color(130, 130, 130)
+            self.cell(0, 10, f"Pagina {self.page_no()} - Generato da GraphoLab", align="C")
+
+    pdf = ReportPDF()
+    pdf.set_auto_page_break(auto=True, margin=18)
+    pdf.add_page()
+
+    # Title block — clearly separated from header line
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.set_text_color(30, 30, 30)
+    pdf.cell(0, 14, "Referto Forense Integrato", align="C")
+    pdf.ln(16)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 8, f"Data generazione: {datetime.now().strftime('%d/%m/%Y %H:%M')}", align="C")
+    pdf.ln(12)
+
+    raw = analysis.result_text or ""
+    lines = raw.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        # Empty line or horizontal rule
+        if not stripped or stripped == "---":
+            pdf.ln(2)
+            i += 1
+            continue
+
+        # H2 heading — skip the document title (already rendered at top)
+        if stripped.startswith("## "):
+            if "Referto Forense Integrato" not in stripped:
+                pdf.set_font("Helvetica", "B", 14)
+                pdf.set_text_color(30, 30, 30)
+                pdf.cell(0, 10, _t(stripped[3:]))
+                pdf.ln(8)
+            i += 1
+            continue
+
+        # H3 section title bar
+        if stripped.startswith("### "):
+            pdf.set_font("Helvetica", "B", 12)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_fill_color(50, 80, 120)
+            pdf.cell(0, 8, _t(f"  {stripped[4:]}"), fill=True)
+            pdf.ln(10)
+            pdf.set_text_color(30, 30, 30)
+            i += 1
+            continue
+
+        # Image tag — download from storage and embed
+        img_match = re.match(r"!\[.*?\]\(/api/analysis/\d+/image/(\w+)\)", stripped)
+        if img_match:
+            slot = img_match.group(1)
+            key = _slot_map.get(slot)
+            if key:
+                try:
+                    img_bytes = _download_sync(key)
+                    _embed_image(pdf, img_bytes)
+                except Exception:
+                    pass
+            i += 1
+            continue
+
+        # Table: collect all consecutive pipe-delimited lines
+        if stripped.startswith("|") and stripped.endswith("|"):
+            table_lines: list[str] = []
+            while i < len(lines):
+                sl = lines[i].strip()
+                if sl.startswith("|") and sl.endswith("|"):
+                    table_lines.append(sl)
+                    i += 1
+                else:
+                    break
+            # Drop separator rows (|---|---|) and parse cells
+            parsed_rows: list[list[str]] = []
+            for row_str in table_lines:
+                if re.match(r"^\|[-| :]+\|$", row_str):
+                    continue
+                cells = [c.strip() for c in row_str.strip("|").split("|")]
+                parsed_rows.append(cells)
+            _render_table(pdf, parsed_rows)
+            continue
+
+        # Regular text
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(40, 40, 40)
+        pdf.multi_cell(0, 5, _t(stripped))
+        pdf.ln(1)
+        i += 1
+
+    buf = io.BytesIO()
+    pdf.output(buf)
+    return buf.getvalue()
