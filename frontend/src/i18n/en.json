@@ -61,7 +61,13 @@
     "clear_analyses": "Clear analyses",
     "clear_analyses_confirm": "Delete all analyses for this case? This cannot be undone.",
     "running": "Running analysis…",
-    "done": "Analysis complete"
+    "done": "Analysis complete",
+    "select_reference_doc": "Select reference document",
+    "select_reference_doc_hint": "Choose the document containing the authentic signature to use as reference.",
+    "select_reference_placeholder": "— select document —",
+    "pipeline_ref_title": "Reference signature (optional)",
+    "pipeline_ref_hint": "Select a document with a known authentic signature to enable signature verification in Step 6. You can also proceed without one.",
+    "pipeline_ref_skip": "— no reference signature —"
   },
   "rag": {
     "title": "AI Forensic Consultant",

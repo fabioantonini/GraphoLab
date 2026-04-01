@@ -100,6 +100,8 @@ export default function ProjectDetailPage() {
   const [runningType, setRunningType] = useState<string | null>(null)
   const [refDoc, setRefDoc] = useState<number | null>(null)
   const [showRefPicker, setShowRefPicker] = useState(false)
+  const [pipelineRefDoc, setPipelineRefDoc] = useState<number | null>(null)
+  const [showPipelinePicker, setShowPipelinePicker] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   async function load() {
@@ -139,6 +141,10 @@ export default function ProjectDetailPage() {
       setShowRefPicker(true)
       return
     }
+    if (type === "pipeline") {
+      setShowPipelinePicker(true)
+      return
+    }
     setRunningType(type)
     try {
       const { data } = await analysisApi.run(type, projectId, selectedDoc)
@@ -154,6 +160,18 @@ export default function ProjectDetailPage() {
     setRunningType("signature_verification")
     try {
       const { data } = await analysisApi.runSignatureVerification(projectId, selectedDoc, refDoc)
+      setAnalyses((a) => [data, ...a])
+    } finally {
+      setRunningType(null)
+    }
+  }
+
+  async function handleRunPipeline() {
+    if (!selectedDoc) return
+    setShowPipelinePicker(false)
+    setRunningType("pipeline")
+    try {
+      const { data } = await analysisApi.runPipeline(projectId, selectedDoc, pipelineRefDoc ?? undefined)
       setAnalyses((a) => [data, ...a])
     } finally {
       setRunningType(null)
@@ -189,6 +207,28 @@ export default function ProjectDetailPage() {
           <div className="flex gap-2 justify-end">
             <Button variant="outline" onClick={() => setShowRefPicker(false)}>{t("common.cancel")}</Button>
             <Button disabled={!refDoc} onClick={handleRunSigVerify}>{t("project.run_analysis")}</Button>
+          </div>
+        </div>
+      </div>
+    )}
+    {showPipelinePicker && (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="bg-background rounded-lg p-6 w-96 space-y-4 shadow-xl">
+          <h2 className="font-semibold">{t("project.pipeline_ref_title")}</h2>
+          <p className="text-sm text-muted-foreground">{t("project.pipeline_ref_hint")}</p>
+          <select
+            className="w-full border rounded-md px-3 py-2 text-sm"
+            value={pipelineRefDoc ?? ""}
+            onChange={(e) => setPipelineRefDoc(e.target.value ? Number(e.target.value) : null)}
+          >
+            <option value="">{t("project.pipeline_ref_skip")}</option>
+            {documents.filter((d) => d.id !== selectedDoc).map((d) => (
+              <option key={d.id} value={d.id}>{d.filename}</option>
+            ))}
+          </select>
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" onClick={() => setShowPipelinePicker(false)}>{t("common.cancel")}</Button>
+            <Button onClick={handleRunPipeline}>{t("project.run_analysis")}</Button>
           </div>
         </div>
       </div>

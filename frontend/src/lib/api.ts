@@ -154,8 +154,8 @@ export const analysisApi = {
   },
   runSignatureVerification: (projectId: number, documentId: number, referenceDocumentId: number) =>
     api.post<Analysis>("/analysis/signature-verification", { project_id: projectId, document_id: documentId, reference_document_id: referenceDocumentId }),
-  runPipeline: (projectId: number, documentId: number) =>
-    api.post<Analysis>("/analysis/pipeline", { project_id: projectId, document_id: documentId }),
+  runPipeline: (projectId: number, documentId: number, referenceDocumentId?: number) =>
+    api.post<Analysis>("/analysis/pipeline", { project_id: projectId, document_id: documentId, reference_document_id: referenceDocumentId ?? null }),
   list: (projectId: number) => api.get<Analysis[]>(`/analysis/project/${projectId}`),
   clearAll: (projectId: number) => api.delete(`/analysis/project/${projectId}`),
   imageUrl: (analysisId: number) => `/api/analysis/${analysisId}/image`,

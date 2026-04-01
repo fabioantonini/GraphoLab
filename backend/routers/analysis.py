@@ -55,6 +55,12 @@ class SignatureVerifyRequest(BaseModel):
     reference_document_id: int  # known genuine signature document
 
 
+class PipelineRequest(BaseModel):
+    project_id: int
+    document_id: int
+    reference_document_id: int | None = None  # optional reference signature for step 6
+
+
 class AnalysisOut(BaseModel):
     id: int
     analysis_type: AnalysisType
@@ -266,7 +272,7 @@ async def run_dating(
 
 @router.post("/pipeline", response_model=AnalysisOut, status_code=status.HTTP_201_CREATED)
 async def run_pipeline(
-    body: AnalysisRequest,
+    body: PipelineRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Analysis:
@@ -275,10 +281,15 @@ async def run_pipeline(
     doc = await _get_doc(body.document_id, body.project_id, db)
     image = await _load_image(doc)
 
+    ref_sig = None
+    if body.reference_document_id:
+        ref_doc = await _get_doc(body.reference_document_id, body.project_id, db)
+        ref_sig = await _load_image(ref_doc)
+
     from core.pipeline import run_pipeline_steps
     results = None
     for results in run_pipeline_steps(
-        image, None, settings.signet_weights, settings.writer_samples_dir
+        image, ref_sig, settings.signet_weights, settings.writer_samples_dir
     ):
         pass  # consume generator to completion
 

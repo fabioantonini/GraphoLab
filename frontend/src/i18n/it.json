@@ -64,7 +64,10 @@
     "done": "Analisi completata",
     "select_reference_doc": "Seleziona documento di riferimento",
     "select_reference_doc_hint": "Scegli il documento che contiene la firma autentica da usare come riferimento.",
-    "select_reference_placeholder": "— seleziona documento —"
+    "select_reference_placeholder": "— seleziona documento —",
+    "pipeline_ref_title": "Firma di riferimento (opzionale)",
+    "pipeline_ref_hint": "Seleziona un documento con una firma autentica nota per abilitare la verifica firma nello Step 6. Puoi anche procedere senza.",
+    "pipeline_ref_skip": "— nessuna firma di riferimento —"
   },
   "rag": {
     "title": "Consulente Forense IA",
