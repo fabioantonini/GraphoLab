@@ -124,7 +124,7 @@ export default function ProjectDetailPage() {
     if (!file) return
     const { data } = await projectsApi.uploadDocument(projectId, file)
     setDocuments((d) => [...d, data])
-    setSelectedDoc(data.id)
+    setSelectedDoc((prev) => prev ?? data.id)  // keep existing selection, only set if none
     e.target.value = ""
   }
 
