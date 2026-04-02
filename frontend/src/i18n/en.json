@@ -108,7 +108,9 @@
       "document_delete": "Document deleted",
       "analysis_run": "Analysis run",
       "analysis_clear": "Analyses cleared",
-      "pdf_download": "PDF downloaded"
+      "pdf_download": "PDF downloaded",
+      "password_reset_generate": "Password reset generated",
+      "password_reset_confirm": "Password reset"
     },
     "audit_empty": "No activity recorded.",
     "audit_filter_action": "Filter by action",
@@ -116,7 +118,13 @@
     "audit_all_actions": "All actions",
     "audit_prev": "Previous",
     "audit_next": "Next",
-    "audit_page": "Page {{page}} — {{total}} events"
+    "audit_page": "Page {{page}} — {{total}} events",
+    "reset_password": "Reset password",
+    "reset_link_title": "Reset link for {{name}}",
+    "reset_link_instructions": "Copy this link and send it to the user via a secure channel (email, message). The link is valid for 24 hours.",
+    "reset_link_expiry": "Expires: 24 hours from generation.",
+    "copy": "Copy",
+    "copied": "Copied!"
   },
   "common": {
     "loading": "Loading…",
@@ -129,5 +137,17 @@
     "confirm": "Confirm",
     "back": "Back",
     "language": "Language"
+  },
+  "reset_password": {
+    "title": "Reset your password",
+    "subtitle": "Enter a new password for your account.",
+    "new_password": "New password",
+    "confirm_password": "Confirm password",
+    "submit": "Reset password",
+    "success": "Password reset successfully. You can now sign in with your new password.",
+    "go_to_login": "Go to login",
+    "invalid_link": "Invalid or missing link. Request a new link from your administrator.",
+    "error_mismatch": "Passwords do not match.",
+    "error_too_short": "Password must be at least 8 characters."
   }
 }

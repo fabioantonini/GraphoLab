@@ -108,7 +108,9 @@
       "document_delete": "Documento eliminato",
       "analysis_run": "Analisi eseguita",
       "analysis_clear": "Analisi cancellate",
-      "pdf_download": "PDF scaricato"
+      "pdf_download": "PDF scaricato",
+      "password_reset_generate": "Reset password generato",
+      "password_reset_confirm": "Password reimpostata"
     },
     "audit_empty": "Nessuna attività registrata.",
     "audit_filter_action": "Filtra per azione",
@@ -116,7 +118,13 @@
     "audit_all_actions": "Tutte le azioni",
     "audit_prev": "Precedente",
     "audit_next": "Successivo",
-    "audit_page": "Pagina {{page}} — {{total}} eventi"
+    "audit_page": "Pagina {{page}} — {{total}} eventi",
+    "reset_password": "Reimposta password",
+    "reset_link_title": "Link di reset per {{name}}",
+    "reset_link_instructions": "Copia questo link e invialo all'utente tramite un canale sicuro (email, messaggio). Il link è valido per 24 ore.",
+    "reset_link_expiry": "Scadenza: 24 ore dalla generazione.",
+    "copy": "Copia",
+    "copied": "Copiato!"
   },
   "common": {
     "loading": "Caricamento…",
@@ -129,5 +137,17 @@
     "confirm": "Conferma",
     "back": "Indietro",
     "language": "Lingua"
+  },
+  "reset_password": {
+    "title": "Reimposta la tua password",
+    "subtitle": "Inserisci la nuova password per il tuo account.",
+    "new_password": "Nuova password",
+    "confirm_password": "Conferma password",
+    "submit": "Reimposta password",
+    "success": "Password reimpostata con successo. Puoi ora accedere con la nuova password.",
+    "go_to_login": "Vai al login",
+    "invalid_link": "Link non valido o mancante. Richiedi un nuovo link all'amministratore.",
+    "error_mismatch": "Le password non coincidono.",
+    "error_too_short": "La password deve essere di almeno 8 caratteri."
   }
 }

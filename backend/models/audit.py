@@ -25,6 +25,8 @@ class AuditAction(str, enum.Enum):
     analysis_run         = "analysis_run"
     analysis_clear       = "analysis_clear"
     pdf_download         = "pdf_download"
+    password_reset_generate = "password_reset_generate"
+    password_reset_confirm  = "password_reset_confirm"
 
 
 class AuditLog(Base):

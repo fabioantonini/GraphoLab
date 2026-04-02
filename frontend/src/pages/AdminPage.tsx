@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Users, ClipboardList, Plus, Trash2, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react"
+import { Users, ClipboardList, Plus, Trash2, RefreshCw, ChevronLeft, ChevronRight, KeyRound, Copy, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { api, usersApi, auditApi, type User, type AuditLogEntry } from "@/lib/api"
+import { authApi, usersApi, auditApi, type User, type AuditLogEntry } from "@/lib/api"
 
 const AUDIT_ACTIONS = [
   "login",
@@ -62,6 +62,26 @@ export default function AdminPage() {
     if (!confirm(t("common.confirm"))) return
     await usersApi.deactivate(userId)
     setUsers((u) => u.map((x) => x.id === userId ? { ...x, is_active: false } : x))
+  }
+
+  // ── Password reset ───────────────────────────────────────────────────────────
+  const [resetLink, setResetLink] = useState<string | null>(null)
+  const [resetUserName, setResetUserName] = useState("")
+  const [copied, setCopied] = useState(false)
+
+  async function handleGenerateReset(user: User) {
+    const { data } = await authApi.generateResetToken(user.id)
+    const link = `${window.location.origin}/reset-password?token=${data.token}`
+    setResetUserName(user.full_name || user.email)
+    setResetLink(link)
+    setCopied(false)
+  }
+
+  function handleCopy() {
+    if (!resetLink) return
+    navigator.clipboard.writeText(resetLink)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   // ── Audit state ──────────────────────────────────────────────────────────────
@@ -182,12 +202,19 @@ export default function AdminPage() {
                           {u.is_active ? t("admin.active") : t("admin.inactive")}
                         </Badge>
                       </td>
-                      <td className="py-2 text-right">
+                      <td className="py-2 text-right flex items-center justify-end gap-1">
                         {u.is_active && (
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                            onClick={() => handleDeactivate(u.id)}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                          <>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
+                              title={t("admin.reset_password")}
+                              onClick={() => handleGenerateReset(u)}>
+                              <KeyRound className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                              onClick={() => handleDeactivate(u.id)}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </>
                         )}
                       </td>
                     </tr>
@@ -196,6 +223,31 @@ export default function AdminPage() {
               </table>
             </CardContent>
           </Card>
+        </div>
+      )}
+
+      {/* ── Reset link modal ──────────────────────────────────────────────────── */}
+      {resetLink && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-md space-y-4">
+            <h2 className="text-sm font-semibold">{t("admin.reset_link_title", { name: resetUserName })}</h2>
+            <p className="text-xs text-muted-foreground">{t("admin.reset_link_instructions")}</p>
+            <div className="flex items-center gap-2">
+              <input
+                readOnly
+                value={resetLink}
+                className="flex-1 text-xs border rounded px-2 py-1.5 bg-muted font-mono truncate"
+              />
+              <Button variant="outline" size="sm" className="h-7 gap-1 shrink-0" onClick={handleCopy}>
+                {copied ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
+                {copied ? t("admin.copied") : t("admin.copy")}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">{t("admin.reset_link_expiry")}</p>
+            <div className="flex justify-end">
+              <Button variant="ghost" size="sm" onClick={() => setResetLink(null)}>{t("common.close")}</Button>
+            </div>
+          </div>
         </div>
       )}
 

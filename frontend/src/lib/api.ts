@@ -113,6 +113,10 @@ export const authApi = {
   refresh: (refreshToken: string) =>
     api.post<TokenResponse>("/auth/refresh", { refresh_token: refreshToken }),
   logout: () => api.post("/auth/logout"),
+  generateResetToken: (userId: number) =>
+    api.post<{ token: string }>("/auth/reset-password/generate", { user_id: userId }),
+  confirmReset: (token: string, newPassword: string) =>
+    api.post("/auth/reset-password/confirm", { token, new_password: newPassword }),
 }
 
 // Users

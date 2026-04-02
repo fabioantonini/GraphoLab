@@ -5,12 +5,14 @@ import ProjectsPage from "@/pages/ProjectsPage"
 import ProjectDetailPage from "@/pages/ProjectDetailPage"
 import RagPage from "@/pages/RagPage"
 import AdminPage from "@/pages/AdminPage"
+import ResetPasswordPage from "@/pages/ResetPasswordPage"
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route element={<AppLayout />}>
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:id" element={<ProjectDetailPage />} />
