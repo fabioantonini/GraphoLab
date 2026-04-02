@@ -279,7 +279,7 @@ def _gen_siamese_network(path: Path):
     plt.close(fig)
 
 
-def _gen_yolo_detection(path: Path):
+def _gen_detr_detection(path: Path):
     fig, ax = plt.subplots(figsize=(5.5, 7.0), facecolor="white")
     ax.set_xlim(0, 10)
     ax.set_ylim(0, 14)
@@ -324,7 +324,7 @@ def _gen_yolo_detection(path: Path):
     ax.text(5.9, 3.7, "~~~~~~~~~", fontsize=14,
             color=(0.3, 0.3, 0.3), fontstyle="italic")
 
-    ax.set_title("YOLOv8 — Rilevamento firme nel documento", fontsize=9,
+    ax.set_title("Conditional DETR — Rilevamento firme nel documento", fontsize=9,
                  color=_NAVY_M, fontweight="bold", pad=4)
 
     plt.tight_layout(pad=0.2)
@@ -338,11 +338,11 @@ def _gen_pipeline_e2e(path: Path):
     ax.set_ylim(0, 8)
     ax.axis("off")
 
-    # Row 1: document → YOLO → SigNet → Autenticità
+    # Row 1: document → DETR → SigNet → Autenticità
     r1_y = 6.0
     r1 = [
         (1.5,  r1_y, "Documento\nscansionato", _NAVY_M),
-        (5.0,  r1_y, "YOLOv8\nRilevamento",    _LBLU_M),
+        (5.0,  r1_y, "DETR\nRilevamento",    _LBLU_M),
         (8.5,  r1_y, "Firma\nestratta",         _PURP_M),
         (12.0, r1_y, "SigNet\nVerifica",        _GREEN_M),
         (16.0, r1_y, "Verdetto\nautenticità",   _GOLD_M),
@@ -437,7 +437,7 @@ def generate_diagrams() -> dict:
         ("computer_vision",      _gen_computer_vision),
         ("confidence_scores",    _gen_confidence_scores),
         ("siamese_network",      _gen_siamese_network),
-        ("yolo_detection",       _gen_yolo_detection),
+        ("detr_detection",       _gen_detr_detection),
         ("pipeline_e2e",         _gen_pipeline_e2e),
         ("signatures_comparison", _gen_signatures_comparison),
     ]
@@ -1026,12 +1026,12 @@ La rete siamese è elegante nella sua architettura: due rami identici elaborano 
 Alcune precisazioni importanti per l'uso forense. Il modello funziona meglio su firme isolate, ad alta risoluzione, su sfondo chiaro. Le 'skilled forgeries' — imitatori molto abili che hanno esercitato a lungo la firma del soggetto — possono ingannare il modello, proprio come possono ingannare un esaminatore. Per questo il risultato va sempre interpretato dall'esaminatore nel contesto del caso: chi sono i possibili falsari? Avevano accesso a campioni della firma? Il sistema fornisce un dato quantitativo — il giudizio rimane umano.
 """)
 
-    # 3. Rilevamento firma — with YOLO diagram
+    # 3. Rilevamento firma — with DETR diagram
     add_two_col(prs,
         "3. Rilevamento Automatico di Firme nei Documenti",
         "Come funziona",
         [
-            "YOLOv8: rete convoluzionale per rilevamento in tempo reale",
+            "Conditional DETR: Transformer encoder-decoder per rilevamento di oggetti",
             "Fine-tuned su dataset di documenti con firme annotate",
             "Produce bounding box con score di confidenza",
             "Gestisce pagine con firme multiple o parzialmente coperte",
@@ -1043,9 +1043,9 @@ Alcune precisazioni importanti per l'uso forense. Il modello funziona meglio su 
             "Pipeline: Rileva → Estrai → Verifica con SigNet",
             "Report con posizione e confidenza di ogni firma",
         ],
-        left_image=imgs.get("yolo_detection"),
+        left_image=imgs.get("detr_detection"),
         speaker_note="""
-YOLOv8 è il sistema di rilevamento di oggetti più usato al mondo in applicazioni industriali e scientifiche. Qui viene fine-tuned specificamente per trovare firme nei documenti. Scansiona l'immagine in tempo reale e disegna un riquadro attorno a ogni firma trovata, con un punteggio di confidenza. La pipeline naturale è: trova le firme nel documento con YOLO, poi passa ognuna a SigNet per verificarne l'autenticità. Questo è lo screening automatico di un intero contratto multi-pagina in pochi secondi.
+Conditional DETR è un modello Transformer per il rilevamento di oggetti basato su ResNet-50 come backbone e un decoder Transformer per la predizione dei bounding box. Qui viene fine-tuned specificamente per trovare firme nei documenti con mAP@50 del 93,65%. La pipeline naturale è: trova le firme nel documento con Conditional DETR, poi passa ognuna a SigNet per verificarne l'autenticità. Questo è lo screening automatico di un intero contratto multi-pagina in pochi secondi.
 """)
 
     # 4. Identificazione scrittore
@@ -1146,7 +1146,7 @@ Ora vediamo concretamente GraphoLab: i sette laboratori dimostrativi e la demo i
             ["01", "Introduzione", "—", "Panoramica concettuale"],
             ["02", "Riconoscimento testo manoscritto", "Transformer OCR", "TrOCR (microsoft)"],
             ["03", "Verifica autenticità firma", "Siamese Network", "SigNet (luizgh/sigver)"],
-            ["04", "Rilevamento firma nei documenti", "Object Detection", "YOLOv8 (tech4humans)"],
+            ["04", "Rilevamento firma nei documenti", "Object Detection", "Conditional DETR (tech4humans)"],
             ["05", "Identificazione dello scrittore", "HOG + SVM", "scikit-learn"],
             ["06", "Analisi caratteristiche grafologiche", "Image Processing", "OpenCV"],
             ["07", "Riconoscimento entità nominate", "Token Classification", "WikiNEural (Babelscape)"],
@@ -1201,16 +1201,16 @@ Questo è il cuore del sistema per la verifica delle firme. SigNet è il modello
 """)
 
     add_bullet(prs, "Lab 04 — Rilevamento Firma nei Documenti", [
-        "Modello: YOLOv8s fine-tuned (tech4humans/yolov8s-signature-detector)",
-        "Nota: modello «gated» su Hugging Face — richiede token HF_TOKEN",
+        "Modello: Conditional DETR fine-tuned (tech4humans/conditional-detr-50-signature-detector)",
+        "Modello pubblico su Hugging Face (Apache 2.0) — nessun token necessario",
         "Demo:",
         "  Caricamento di un documento scansionato",
-        "  Inferenza YOLOv8: localizzazione firme con bounding box",
+        "  Inferenza Conditional DETR: localizzazione firme con bounding box",
         "  Ritaglio automatico di ogni firma → input per Lab 03",
         "Pipeline dimostrativa: Rileva → Estrai → Verifica",
-    ], note="File: notebooks/04_signature_detection_yolo.ipynb  |  Prerequisiti: ultralytics, opencv-python",
+    ], note="File: notebooks/04_signature_detection_detr.ipynb  |  Prerequisiti: transformers, timm, opencv-python",
     speaker_note="""
-YOLOv8 richiede un token Hugging Face perché il modello è 'gated' — richiede l'accettazione delle condizioni d'uso sul sito Hugging Face, poi il download è gratuito. Il lab mostra la pipeline completa: il documento entra, le firme vengono rilevate e ritagliate, ogni ritaglio viene passato a SigNet per la verifica. È l'unico lab con questa dipendenza esterna, ma la configurazione è un'operazione da cinque minuti.
+Conditional DETR è disponibile pubblicamente su Hugging Face senza token di autenticazione, con licenza Apache 2.0. Il lab mostra la pipeline completa: il documento entra, le firme vengono rilevate e ritagliate, ogni ritaglio viene passato a SigNet per la verifica. Non è richiesta alcuna configurazione aggiuntiva oltre all'installazione di transformers e timm.
 """)
 
     add_bullet(prs, "Lab 05 — Identificazione dello Scrittore", [
@@ -1266,7 +1266,7 @@ La demo interattiva è l'interfaccia pensata per chi non vuole usare Python o Ju
     add_bullet_with_image(prs,
         "Pipeline End-to-End: dal Documento al Referto Forense",
         [
-            "1. YOLOv8 individua le firme nel documento → estrae le immagini",
+            "1. Conditional DETR individua le firme nel documento → estrae le immagini",
             "2. SigNet confronta le firme con i riferimenti → verdetto autenticità",
             "3. TrOCR trascrive il testo del documento riga per riga",
             "4. WikiNEural NER estrae persone, luoghi, organizzazioni",
@@ -1276,7 +1276,7 @@ La demo interattiva è l'interfaccia pensata per chi non vuole usare Python o Ju
         imgs.get("pipeline_e2e"),
         note="La pipeline è modulare: ogni lab può essere usato autonomamente o in combinazione.",
         speaker_note="""
-Questo diagramma mostra come tutti i pezzi si connettono in una pipeline end-to-end. Un documento entra nel sistema: YOLO trova le firme, SigNet le verifica, TrOCR trascrive il testo, NER estrae le entità, l'analisi grafologica misura le caratteristiche. L'output finale è un referto strutturato con dati quantitativi per ogni dimensione di analisi. La pipeline è modulare: ogni componente può essere usato autonomamente o in combinazione a seconda del tipo di caso.
+Questo diagramma mostra come tutti i pezzi si connettono in una pipeline end-to-end. Un documento entra nel sistema: Conditional DETR trova le firme, SigNet le verifica, TrOCR trascrive il testo, NER estrae le entità, l'analisi grafologica misura le caratteristiche. L'output finale è un referto strutturato con dati quantitativi per ogni dimensione di analisi. La pipeline è modulare: ogni componente può essere usato autonomamente o in combinazione a seconda del tipo di caso.
 """)
 
     add_bullet(prs, "Come Avviare GraphoLab", [
@@ -1290,7 +1290,7 @@ Questo diagramma mostra come tutti i pezzi si connettono in una pipeline end-to-
         "  docker compose up gradio    →  http://localhost:7860",
         "Cache modelli nel volume Docker grapholab-hf-cache (download unico)",
     ], font_size=17, speaker_note="""
-Per chi vuole provare in locale: serve Python 3.11, poi quattro comandi e siete operativi. Per chi preferisce Docker: due comandi e tutto funziona in un ambiente isolato, senza toccare il sistema. I modelli vengono scaricati automaticamente la prima volta — Hugging Face li mette in cache nel volume Docker, quindi i download successivi sono istantanei. Il token HF_TOKEN è necessario solo per il Lab 04 (YOLOv8).
+Per chi vuole provare in locale: serve Python 3.11, poi quattro comandi e siete operativi. Per chi preferisce Docker: due comandi e tutto funziona in un ambiente isolato, senza toccare il sistema. I modelli vengono scaricati automaticamente la prima volta — Hugging Face li mette in cache nel volume Docker, quindi i download successivi sono istantanei. Nessun token HF necessario.
 """)
 
     # =========================================================

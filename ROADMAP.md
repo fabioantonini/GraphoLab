@@ -78,14 +78,14 @@ grapholab/
 
 | Dependency | License | Commercial impact |
 |---|---|---|
-| `ultralytics` (YOLOv8) | AGPL-3.0 | Source disclosure required, or buy Enterprise license |
+| ~~`ultralytics` (YOLOv8)~~ ✅ | ~~AGPL-3.0~~ | Replaced with `transformers` + Conditional DETR (Apache 2.0) |
 | `albumentations` | AGPL-3.0 / Commercial | Same constraint |
 | All others | BSD / Apache 2.0 / MIT | No commercial restrictions |
 
 **Resolution (recommended before any commercial release):**
 
-- Replace `ultralytics` with RT-DETR via `transformers` (Apache 2.0) — covers the Lab 04 signature detection use case
-- Remove `albumentations` from requirements (not used in production code, only in notebooks)
+- ~~Replace `ultralytics` with RT-DETR via `transformers` (Apache 2.0) — covers the Lab 04 signature detection use case~~ ✅ Done (Conditional DETR)
+- ~~Remove `albumentations` from requirements (not used in production code, only in notebooks)~~ ✅ Done
 
 ---
 
@@ -147,14 +147,14 @@ Migration order (most independent first):
 - [ ] `core/ocr.py` — TrOCR + EasyOCR
 - [ ] `core/graphology.py` — HOG, LBP, graphological analysis
 - [ ] `core/writer.py` — writer identification
-- [ ] `core/signature.py` — SigNet + YOLO (or RT-DETR)
+- [ ] `core/signature.py` — SigNet + Conditional DETR
 - [ ] `core/rag.py` — RAG + Ollama
 - [ ] `core/dating.py` — document dating (uses OCR internally)
 - [ ] `core/pipeline.py` — full forensic pipeline (aggregates all others)
 - [ ] Update `grapholab_demo.py` to import from `core/`
 - [ ] Verify Gradio demo works identically
-- [ ] Replace `ultralytics` with RT-DETR in `core/signature.py`
-- [ ] Remove `albumentations` from `requirements.txt`
+- [x] Replace `ultralytics` with Conditional DETR in `core/signature.py`
+- [x] Remove `albumentations` from `requirements.txt`
 
 ### Phase 1 — MVP (6–8 weeks)
 

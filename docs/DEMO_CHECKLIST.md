@@ -24,7 +24,7 @@ All Hugging Face models are fetched on first run and cached locally (or in the D
 |-------|--------------|------|----------------|
 | **TrOCR** (`microsoft/trocr-base-handwritten`) | `transformers` | ~400 MB | `~/.cache/huggingface/` |
 | **EasyOCR** (Italian + English models) | `easyocr` | ~100 MB | `~/.EasyOCR/` |
-| **YOLOv8s signature detector** (`tech4humans/yolov8s-signature-detector`) | `huggingface_hub` | ~22 MB | `~/.cache/huggingface/` |
+| **Conditional DETR signature detector** (`tech4humans/conditional-detr-50-signature-detector`) | `transformers` | ~170 MB | `~/.cache/huggingface/` |
 | **WikiNEural NER** (`Babelscape/wikineural-multilingual-ner`) | `transformers` | ~700 MB | `~/.cache/huggingface/` |
 | **dots.ocr** (`rednote-hilab/dots.ocr`) | `transformers` | ~3.5 GB (bf16) / ~7 GB (fp32 CPU) | `~/.cache/huggingface/` |
 
@@ -91,7 +91,7 @@ Repeat for each writer you want to demonstrate (e.g. N = 1, 2, 3, …).
 
 ---
 
-### Lab 04 — Signature Detection in Documents (YOLOv8)
+### Lab 04 — Signature Detection in Documents (Conditional DETR)
 
 | File | Description |
 |------|-------------|
@@ -225,7 +225,7 @@ Lab 01 needs nothing. Lab 05 needs per-writer subdirectories (not covered by thi
 ## Quick Checklist Before Running
 
 - [ ] Python environment created and `requirements.txt` installed
-- [ ] Internet connection available (first-run model downloads: TrOCR ~400 MB, EasyOCR ~100 MB, WikiNEural NER ~700 MB, YOLOv8 ~22 MB, dots.ocr ~3.5 GB)
+- [ ] Internet connection available (first-run model downloads: TrOCR ~400 MB, EasyOCR ~100 MB, WikiNEural NER ~700 MB, Conditional DETR ~170 MB, dots.ocr ~3.5 GB)
 - [ ] `models/signet.pth` downloaded from [luizgh/sigver](https://github.com/luizgh/sigver)
 - [ ] `data/samples/` directory exists
 - [ ] Handwritten text images placed (`handwritten_text_*.png`, `handwritten_multiline_01.png`)

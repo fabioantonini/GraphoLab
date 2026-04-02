@@ -322,7 +322,7 @@ OSAC e SWGDOC pubblicano linee guida sulle migliori pratiche per l'esame forense
 | 01 | Introduzione | Panoramica concettuale |
 | 02 | OCR Manoscritto | TrOCR (Transformer) |
 | 03 | Verifica Firma | Siamese Neural Network |
-| 04 | Rilevamento Firma | YOLOv8 Object Detection |
+| 04 | Rilevamento Firma | Conditional DETR Object Detection |
 | 05 | Identificazione Scrittore | Estrazione feature + SVM |
 | 06 | Analisi Grafologica | OpenCV + Elaborazione immagini |
 | — | Demo Gradio | Tutte le funzionalità, via browser |

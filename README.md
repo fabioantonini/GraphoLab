@@ -26,7 +26,7 @@ A collection of AI-powered demo labs showing how machine learning and computer v
 | 01 | [Introduction](notebooks/01_intro_forensic_graphology.ipynb) | — | Conceptual overview |
 | 02 | [Handwritten OCR](notebooks/02_handwritten_ocr_trocr.ipynb) | Transformer OCR | `microsoft/trocr-base-handwritten` |
 | 03 | [Signature Verification](notebooks/03_signature_verification_siamese.ipynb) | Siamese Network | SigNet (luizgh/sigver) |
-| 04 | [Signature Detection](notebooks/04_signature_detection_yolo.ipynb) | Object Detection | YOLOv8 (tech4humans) |
+| 04 | [Signature Detection](notebooks/04_signature_detection_detr.ipynb) | Object Detection | Conditional DETR (tech4humans) |
 | 05 | [Writer Identification](notebooks/05_writer_identification.ipynb) | HOG + SVM | scikit-learn |
 | 06 | [Graphological Analysis](notebooks/06_graphological_feature_analysis.ipynb) | Image Processing | OpenCV |
 | 07 | [Named Entity Recognition](notebooks/07_named_entity_recognition.ipynb) | Token Classification | `Babelscape/wikineural-multilingual-ner` |
@@ -40,7 +40,7 @@ See [docs/NOTEBOOKS_GUIDE.md](docs/NOTEBOOKS_GUIDE.md) for a full description of
 |-----|------|-------------|
 | 1 | OCR Manoscritto | Handwritten text transcription with EasyOCR |
 | 2 | Verifica Firma | Signature verification with SigNet (Siamese network) |
-| 3 | Rilevamento Firma | Signature detection in documents with YOLOv8 |
+| 3 | Rilevamento Firma | Signature detection in documents with Conditional DETR |
 | 4 | Riconoscimento Entità | Named entity recognition (NER) on transcribed text |
 | 5 | Identificazione Scrittore | Writer identification with HOG + SVM |
 | 6 | Analisi Grafologica | Graphological feature analysis (slant, pressure, spacing) |
@@ -132,7 +132,7 @@ See [data/samples/README.md](data/samples/README.md) for naming conventions.
 |----------|----------|
 | Handwritten OCR | [microsoft/trocr-base-handwritten](https://huggingface.co/microsoft/trocr-base-handwritten) |
 | Handwritten OCR (VLM, notebook only) | [rednote-hilab/dots.ocr](https://huggingface.co/rednote-hilab/dots.ocr) — 1.7B Vision-Language Model |
-| Signature Detection | [tech4humans/yolov8s-signature-detector](https://huggingface.co/tech4humans/yolov8s-signature-detector) ⚠️ gated |
+| Signature Detection | [tech4humans/conditional-detr-50-signature-detector](https://huggingface.co/tech4humans/conditional-detr-50-signature-detector) |
 | Signature Verification | [luizgh/sigver](https://github.com/luizgh/sigver) |
 | NER | [Babelscape/wikineural-multilingual-ner](https://huggingface.co/Babelscape/wikineural-multilingual-ner) |
 | Forensic report synthesis & RAG chatbot | [Ollama](https://ollama.com) — local LLM (no data sent online) |
@@ -154,29 +154,11 @@ Without Ollama, both tabs degrade gracefully: tab 7 skips the LLM synthesis step
 
 ---
 
-### Signature Detection — Gated Model Access
+### Signature Detection — Model Access
 
-The `tech4humans/yolov8s-signature-detector` model requires authentication on Hugging Face.
+The `tech4humans/conditional-detr-50-signature-detector` model is publicly available on Hugging Face under the Apache 2.0 licence — no authentication token required.
 
-**Steps to enable the Signature Detection tab:**
-
-1. Create or log in to your account at [huggingface.co](https://huggingface.co)
-2. Request access at [huggingface.co/tech4humans/yolov8s-signature-detector](https://huggingface.co/tech4humans/yolov8s-signature-detector)
-3. Once approved, create a token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) (type: Read)
-4. Set the token before starting the app:
-
-```powershell
-# Windows PowerShell
-$env:HF_TOKEN="hf_xxxxxxxxxxxxxxxx"
-venv\Scripts\python app\grapholab_demo.py
-```
-
-```bash
-# Linux/macOS or Windows bash
-HF_TOKEN=hf_xxxxxxxxxxxxxxxx python app/grapholab_demo.py
-```
-
-Without the token, the Signature Detection tab will display a friendly error message instead of crashing.
+The model is downloaded automatically on first run via the `transformers` library and cached locally.
 
 ---
 

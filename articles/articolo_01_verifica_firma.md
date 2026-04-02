@@ -134,7 +134,7 @@ Load a reference signature, upload a second image, and see the result in seconds
 
 ---
 
-*Next in the series: **How AI Finds Signatures in Documents** — using YOLOv8, the same object detection architecture deployed in autonomous vehicles, to locate and extract signatures from contracts, wills, and legal records.*
+*Next in the series: **How AI Finds Signatures in Documents** — using Conditional DETR, a Transformer-based object detection architecture, to locate and extract signatures from contracts, wills, and legal records.*
 
 ---
 

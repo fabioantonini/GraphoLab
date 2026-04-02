@@ -44,7 +44,7 @@ GraphoLab is an open-source project that integrates seven AI technologies into a
 | 01 | Conceptual introduction | — |
 | 02 | Handwritten Text Recognition (HTR) | TrOCR / EasyOCR |
 | 03 | Signature authenticity verification | SigNet (Siamese Network) |
-| 04 | Signature detection in documents | YOLOv8 fine-tuned |
+| 04 | Signature detection in documents | Conditional DETR fine-tuned |
 | 05 | Writer identification | HOG + LBP + SVM |
 | 06 | Graphological feature analysis | OpenCV + signal processing |
 | 07 | Named Entity Recognition (NER) | Multilingual BERT-NER |

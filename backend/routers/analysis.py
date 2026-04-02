@@ -9,7 +9,7 @@ All heavy AI work is delegated to core/. This router is a thin HTTP layer:
 
 Endpoints:
   POST /analysis/htr                      → HTR transcription
-  POST /analysis/signature-detection      → YOLO signature detection
+  POST /analysis/signature-detection      → Conditional DETR signature detection
   POST /analysis/signature-verification   → SigNet verification
   POST /analysis/ner                      → Named Entity Recognition
   POST /analysis/writer                   → Writer identification

@@ -322,7 +322,7 @@ OSAC and SWGDOC publish best-practice frameworks for forensic document examinati
 | 01 | Introduction | Conceptual overview |
 | 02 | Handwritten OCR | TrOCR (Transformer) |
 | 03 | Signature Verification | Siamese Neural Network |
-| 04 | Signature Detection | YOLOv8 Object Detection |
+| 04 | Signature Detection | Conditional DETR Object Detection |
 | 05 | Writer Identification | Feature extraction + SVM |
 | 06 | Graphological Analysis | OpenCV + Image Processing |
 | — | Gradio Demo App | All capabilities, browser-based |

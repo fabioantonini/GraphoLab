@@ -12,7 +12,7 @@ Forensic graphology is the scientific examination of handwriting and signatures 
 |------|-------------|----------------------|
 | Handwritten text transcription | Transformer OCR (TrOCR / EasyOCR) | Anonymous letters, historical documents |
 | Signature authenticity | Siamese Neural Network (SigNet) | Checks, contracts, wills |
-| Signature location in documents | Object Detection (YOLOv8) | Document processing pipelines |
+| Signature location in documents | Object Detection (Conditional DETR) | Document processing pipelines |
 | Writer identification | Feature extraction + classifier | Disputed authorship |
 | Graphological feature analysis | OpenCV + ML | Profiling, comparative analysis |
 | Named entity recognition | Token classification (BERT-NER) | People, places, orgs in documents |
@@ -132,21 +132,21 @@ In practice this means SigNet can be applied to **any pair of signatures**, rega
 
 ---
 
-## Lab 04 — Signature Detection in Documents (YOLOv8)
+## Lab 04 — Signature Detection in Documents (Conditional DETR)
 
-**File:** `notebooks/04_signature_detection_yolo.ipynb`
+**File:** `notebooks/04_signature_detection_detr.ipynb`
 
-Uses a **YOLOv8** model fine-tuned for signature detection (`tech4humans/yolov8s-signature-detector` on Hugging Face) to automatically locate signatures within scanned documents.
+Uses a **Conditional DETR** model fine-tuned for signature detection (`tech4humans/conditional-detr-50-signature-detector` on Hugging Face) to automatically locate signatures within scanned documents.
 
 **What you will learn:**
-- How YOLO object detection works in the context of document analysis
-- How to load a Hugging Face model with the `ultralytics` library
+- How Conditional DETR object detection works in the context of document analysis
+- How to load a Hugging Face model with the `transformers` library
 - How to run inference on document images and parse bounding box results
 - How to visualise detected regions and crop them for downstream processing
 
 **Demo flow:**
 1. Load a scanned document image from `data/samples/`
-2. Run YOLOv8 inference
+2. Run Conditional DETR inference
 3. Draw bounding boxes around detected signatures
 4. Crop and save each detected signature for use in Lab 03
 
@@ -155,7 +155,7 @@ Uses a **YOLOv8** model fine-tuned for signature detection (`tech4humans/yolov8s
 - First step in a pipeline: detect → extract → verify
 - Screening large document archives for signature presence
 
-**Prerequisites:** `ultralytics`, `opencv-python`, `Pillow`
+**Prerequisites:** `transformers`, `timm`, `opencv-python`, `Pillow`
 
 ---
 

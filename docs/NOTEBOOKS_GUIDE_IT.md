@@ -12,7 +12,7 @@ La grafologia forense è l'esame scientifico della scrittura a mano e delle firm
 |---------|-------------|----------------------|
 | Trascrizione di testo manoscritto | Transformer OCR (TrOCR / EasyOCR) | Lettere anonime, documenti storici |
 | Autenticità della firma | Siamese Neural Network (SigNet) | Assegni, contratti, testamenti |
-| Localizzazione firma nei documenti | Object Detection (YOLOv8) | Pipeline di analisi documentale |
+| Localizzazione firma nei documenti | Object Detection (Conditional DETR) | Pipeline di analisi documentale |
 | Identificazione dello scrittore | Estrazione feature + classificatore | Paternità contestata |
 | Analisi caratteristiche grafologiche | OpenCV + ML | Profiling, analisi comparativa |
 | Riconoscimento entità nominate | Classificazione token (BERT-NER) | Persone, luoghi, organizzazioni nei documenti |
@@ -132,21 +132,21 @@ In pratica, SigNet può essere applicata a **qualsiasi coppia di firme**, indipe
 
 ---
 
-## Lab 04 — Rilevamento Firma nei Documenti (YOLOv8)
+## Lab 04 — Rilevamento Firma nei Documenti (Conditional DETR)
 
-**File:** `notebooks/04_signature_detection_yolo.ipynb`
+**File:** `notebooks/04_signature_detection_detr.ipynb`
 
-Utilizza un modello **YOLOv8** fine-tuned per il rilevamento di firme (`tech4humans/yolov8s-signature-detector` su Hugging Face) per localizzare automaticamente le firme all'interno di documenti scansionati.
+Utilizza un modello **Conditional DETR** fine-tuned per il rilevamento di firme (`tech4humans/conditional-detr-50-signature-detector` su Hugging Face) per localizzare automaticamente le firme all'interno di documenti scansionati.
 
 **Cosa imparerai:**
-- Come funziona la rilevazione di oggetti YOLO nel contesto dell'analisi documentale
-- Come caricare un modello Hugging Face con la libreria `ultralytics`
+- Come funziona la rilevazione di oggetti Conditional DETR nel contesto dell'analisi documentale
+- Come caricare un modello Hugging Face con la libreria `transformers`
 - Come eseguire l'inferenza su immagini di documenti e interpretare i bounding box
 - Come visualizzare le regioni rilevate e ritagliarle per l'elaborazione successiva
 
 **Flusso della demo:**
 1. Caricare un'immagine di documento scansionato da `data/samples/`
-2. Eseguire l'inferenza YOLOv8
+2. Eseguire l'inferenza Conditional DETR
 3. Disegnare i bounding box attorno alle firme rilevate
 4. Ritagliare e salvare ciascuna firma rilevata per l'uso nel Lab 03
 
@@ -155,7 +155,7 @@ Utilizza un modello **YOLOv8** fine-tuned per il rilevamento di firme (`tech4hum
 - Primo passo di una pipeline: rileva → estrai → verifica
 - Screening di grandi archivi documentali per la presenza di firme
 
-**Prerequisiti:** `ultralytics`, `opencv-python`, `Pillow`
+**Prerequisiti:** `transformers`, `timm`, `opencv-python`, `Pillow`
 
 ---
 
