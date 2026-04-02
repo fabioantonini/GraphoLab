@@ -47,8 +47,8 @@ async def rag_status(_: User = Depends(get_current_user)) -> dict:
 @router.get("/docs", response_model=list[DocInfo])
 async def list_docs(_: User = Depends(get_current_user)) -> list[DocInfo]:
     from core.rag import rag_doc_list
-    docs = rag_doc_list(settings.rag_cache_dir)
-    return [DocInfo(filename=d["filename"], chunks=d["chunks"]) for d in docs]
+    docs = rag_doc_list()
+    return [DocInfo(filename=row[0], chunks=row[1]) for row in docs]
 
 
 @router.post("/docs", status_code=status.HTTP_201_CREATED)
