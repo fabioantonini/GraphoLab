@@ -3,10 +3,10 @@ GraphoLab core — Signature Verification and Detection.
 
 Provides:
   - get_signet()            lazy loader for the SigNet model
-  - get_yolo()              lazy loader for the YOLOv8 signature detector
+  - get_detector()          lazy loader for the Conditional DETR signature detector
   - preprocess_signature()  sigver-compatible preprocessing
   - sig_verify()            verify signature authenticity (SigNet)
-  - sig_detect()            detect signature locations in a document (YOLO)
+  - sig_detect()            detect signature locations in a document (Conditional DETR)
   - detect_and_crop()       detect + return annotated image and first crop
 """
 
@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import io
 import os
-import tempfile
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -38,8 +37,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 SIGNET_CANVAS = (952, 1360)
 SIG_THRESHOLD = 0.35
 
-YOLO_REPO = "tech4humans/yolov8s-signature-detector"
-YOLO_FILENAME = "yolov8s.pt"
+DETR_REPO = "tech4humans/conditional-detr-50-signature-detector"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # SigNet architecture
@@ -95,8 +93,9 @@ _signet = None
 _signet_pretrained = False
 _signet_lock = threading.Lock()
 
-_yolo_model = None
-_yolo_lock = threading.Lock()
+_detector_processor = None
+_detector_model = None
+_detector_lock = threading.Lock()
 
 
 def get_signet(weights_path: Path):
@@ -117,21 +116,17 @@ def get_signet(weights_path: Path):
     return _signet
 
 
-def get_yolo():
-    """Return the YOLO signature detector, downloading on first call (thread-safe)."""
-    global _yolo_model
-    if _yolo_model is None:
-        with _yolo_lock:
-            if _yolo_model is None:
-                from huggingface_hub import hf_hub_download
-                from ultralytics import YOLO
-                print("Loading YOLOv8 signature detector...")
-                hf_token = os.environ.get("HF_TOKEN")
-                model_path = hf_hub_download(
-                    repo_id=YOLO_REPO, filename=YOLO_FILENAME, token=hf_token
-                )
-                _yolo_model = YOLO(model_path)
-    return _yolo_model
+def get_detector():
+    """Return the Conditional DETR signature detector, downloading on first call (thread-safe)."""
+    global _detector_processor, _detector_model
+    if _detector_model is None:
+        with _detector_lock:
+            if _detector_model is None:
+                from transformers import AutoImageProcessor, AutoModelForObjectDetection
+                print("Loading Conditional DETR signature detector...")
+                _detector_processor = AutoImageProcessor.from_pretrained(DETR_REPO)
+                _detector_model = AutoModelForObjectDetection.from_pretrained(DETR_REPO).to(DEVICE).eval()
+    return _detector_processor, _detector_model
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -288,7 +283,7 @@ def sig_detect(
     image: np.ndarray,
     conf_threshold: float,
 ) -> tuple[np.ndarray, str]:
-    """Detect signature locations in a document image using YOLO.
+    """Detect signature locations in a document image using Conditional DETR.
 
     Args:
         image:          RGB numpy array of the document.
@@ -301,46 +296,39 @@ def sig_detect(
     if image is None:
         return image, "Carica un'immagine del documento."
     try:
-        yolo = get_yolo()
+        processor, model = get_detector()
     except Exception as e:
         msg = (
             "⚠️ **Modello non disponibile.**\n\n"
-            "Il modello `tech4humans/yolov8s-signature-detector` è ad accesso limitato su Hugging Face.\n\n"
-            "**Per abilitare questa sezione:**\n"
-            "1. Crea un account su huggingface.co\n"
-            "2. Richiedi l'accesso su huggingface.co/tech4humans/yolov8s-signature-detector\n"
-            "3. Crea un token su huggingface.co/settings/tokens\n"
-            "4. Imposta la variabile d'ambiente `HF_TOKEN=<il_tuo_token>` prima di avviare l'app\n\n"
+            f"Impossibile caricare `{DETR_REPO}`.\n\n"
             f"Errore: {e}"
         )
         return image, msg
 
     pil_img = Image.fromarray(image).convert("RGB")
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-        pil_img.save(tmp.name)
-        tmp_path = tmp.name
+    inputs = processor(images=pil_img, return_tensors="pt").to(DEVICE)
+    with torch.no_grad():
+        outputs = model(**inputs)
+    target_sizes = torch.tensor([pil_img.size[::-1]])
+    results = processor.post_process_object_detection(
+        outputs, threshold=conf_threshold, target_sizes=target_sizes
+    )[0]
 
-    results = yolo.predict(tmp_path, conf=conf_threshold, verbose=False)
-    os.unlink(tmp_path)
-
-    result = results[0]
     annotated = image.copy()
     count = 0
-
-    if result.boxes is not None:
-        for box in result.boxes:
-            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
-            conf = float(box.conf[0].cpu())
-            cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 0, 0), 2)
-            cv2.putText(annotated, f"Sig #{count+1}  {conf:.0%}",
-                        (x1, max(y1 - 8, 0)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
-            count += 1
+    for score, box in zip(results["scores"], results["boxes"]):
+        x1, y1, x2, y2 = box.cpu().numpy().astype(int)
+        conf = float(score.cpu())
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 0, 0), 2)
+        cv2.putText(annotated, f"Sig #{count+1}  {conf:.0%}",
+                    (x1, max(y1 - 8, 0)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+        count += 1
 
     summary = (
         f"Rilevat{'a' if count == 1 else 'e'} {count} firma{'' if count == 1 else 'e'} "
         f"(confidenza ≥ {conf_threshold:.0%})\n\n"
-        f"**Modello:** `tech4humans/yolov8s-signature-detector`\n"
+        f"**Modello:** `{DETR_REPO}`\n"
         f"**Uso forense:** Estrazione automatica di firme da documenti legali."
     )
     return annotated, summary
@@ -350,42 +338,41 @@ def detect_and_crop(
     image: np.ndarray,
     conf_threshold: float = 0.3,
 ) -> tuple[np.ndarray, np.ndarray | None, str]:
-    """Run YOLO detection and return (annotated, first_crop, summary).
+    """Run Conditional DETR detection and return (annotated, first_crop, summary).
 
-    Gracefully degrades when YOLO is not available (missing HF_TOKEN).
+    Gracefully degrades when the model is not available.
     """
     annotated = image.copy()
     try:
-        yolo = get_yolo()
+        processor, model = get_detector()
     except Exception:
-        return annotated, None, "⚠️ Rilevamento firma non disponibile (HF_TOKEN mancante)."
+        return annotated, None, "⚠️ Rilevamento firma non disponibile."
 
     pil_img = Image.fromarray(image).convert("RGB")
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-        pil_img.save(tmp.name)
-        tmp_path = tmp.name
+    inputs = processor(images=pil_img, return_tensors="pt").to(DEVICE)
+    with torch.no_grad():
+        outputs = model(**inputs)
+    target_sizes = torch.tensor([pil_img.size[::-1]])
+    results = processor.post_process_object_detection(
+        outputs, threshold=conf_threshold, target_sizes=target_sizes
+    )[0]
 
-    results = yolo.predict(tmp_path, conf=conf_threshold, verbose=False)
-    os.unlink(tmp_path)
-
-    result = results[0]
     first_crop: np.ndarray | None = None
     count = 0
 
-    if result.boxes is not None:
-        for box in result.boxes:
-            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
-            conf = float(box.conf[0].cpu())
-            cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 0, 0), 2)
-            cv2.putText(annotated, f"Sig #{count+1}  {conf:.0%}",
-                        (x1, max(y1 - 8, 0)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
-            if count == 0:
-                x1c = max(0, x1); y1c = max(0, y1)
-                x2c = min(image.shape[1], x2); y2c = min(image.shape[0], y2)
-                if x2c > x1c and y2c > y1c:
-                    first_crop = image[y1c:y2c, x1c:x2c]
-            count += 1
+    for score, box in zip(results["scores"], results["boxes"]):
+        x1, y1, x2, y2 = box.cpu().numpy().astype(int)
+        conf = float(score.cpu())
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 0, 0), 2)
+        cv2.putText(annotated, f"Sig #{count+1}  {conf:.0%}",
+                    (x1, max(y1 - 8, 0)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+        if count == 0:
+            x1c = max(0, x1); y1c = max(0, y1)
+            x2c = min(image.shape[1], x2); y2c = min(image.shape[0], y2)
+            if x2c > x1c and y2c > y1c:
+                first_crop = image[y1c:y2c, x1c:x2c]
+        count += 1
 
     summary = (
         f"Rilevat{'a' if count == 1 else 'e'} {count} firma{'' if count == 1 else 'e'}."

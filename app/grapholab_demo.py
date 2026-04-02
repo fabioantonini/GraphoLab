@@ -414,7 +414,7 @@ with gr.Blocks() as pipeline_tab:
         "Il sistema eseguirà in sequenza tutti e sei gli strumenti AI e produrrà un **referto forense integrato**.\n\n"
         "| Step | Strumento | Input |\n"
         "|------|-----------|-------|\n"
-        "| 1 | Rilevamento Firma (YOLOv8) | Documento |\n"
+        "| 1 | Rilevamento Firma (Conditional DETR) | Documento |\n"
         "| 2 | Trascrizione HTR (EasyOCR) | Documento |\n"
         "| 3 | Riconoscimento Entità — NER | Testo da Step 2 |\n"
         "| 4 | Identificazione Scrittore | Documento |\n"
@@ -430,7 +430,7 @@ with gr.Blocks() as pipeline_tab:
     pipe_btn = gr.Button("▶  Avvia Analisi Forense", variant="primary", size="lg")
 
     with gr.Column(visible=False) as pipe_results:
-        gr.Markdown("### Step 1 — Rilevamento Firma (YOLOv8)")
+        gr.Markdown("### Step 1 — Rilevamento Firma (Conditional DETR)")
         with gr.Row():
             out_s1_img = gr.Image(label="Documento annotato", type="numpy")
             out_s1_txt = gr.Textbox(label="Riepilogo", lines=3)

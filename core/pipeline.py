@@ -304,7 +304,7 @@ def generate_forensic_pdf(results: PipelineResults) -> str:
         pdf.image(buf, x=x, w=disp_w, h=disp_h)
         pdf.ln(4)
 
-    _section_title("Step 1 — Rilevamento Firma (YOLOv8)")
+    _section_title("Step 1 — Rilevamento Firma (Conditional DETR)")
     _body_text(results.sig_detect_summary)
     _embed_image(results.sig_detect_image)
 
