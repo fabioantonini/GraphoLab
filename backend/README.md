@@ -127,6 +127,74 @@ asyncio.run(main())
 
 ---
 
+## Reset password utente (senza SMTP)
+
+GraphoLab usa un flusso di reset **mediato dall'admin** — non richiede un server email.
+
+### Procedura normale (via UI)
+
+1. Accedi come **admin** → vai in **Amministrazione → Utenti**
+2. Clicca l'icona 🔑 accanto all'utente che deve reimpostare la password
+3. Copia il link generato dal modal e invialo all'utente tramite qualsiasi canale (email, messaggio)
+4. L'utente apre il link → inserisce la nuova password → conferma
+5. L'operazione è registrata nell'audit log (sia la generazione che la conferma)
+
+Il link è valido **24 ore**.
+
+### Procedura di emergenza (via API / Swagger)
+
+Se l'admin non riesce ad accedere alla UI:
+
+1. Apri `http://localhost:8000/docs`
+2. Autenticati con `POST /auth/login`
+3. Chiama `POST /auth/reset-password/generate` con `{ "user_id": <id> }`
+4. Copia il `token` dalla risposta e costruisci il link manualmente:
+
+   ```text
+   http://<host-frontend>/reset-password?token=<token>
+   ```
+
+### Reset del database (sviluppo)
+
+Se devi azzerare completamente il DB in sviluppo (es. dopo modifiche allo schema):
+
+```bash
+# Con SQLite — cancella il file
+del grapholab_dev.db   # Windows
+rm grapholab_dev.db    # Unix
+
+# Poi ricrea l'admin e riavvia
+python -c "
+import asyncio
+from backend.database import engine, Base
+from backend.models import *
+from backend.auth.password import hash_password
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import sessionmaker
+
+async def seed():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    Session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with Session() as db:
+        user = User(
+            email='admin@grapholab.local',
+            full_name='Amministratore',
+            hashed_password=hash_password('Admin1234!'),
+            role=Role.admin,
+            is_active=True,
+        )
+        db.add(user)
+        await db.commit()
+    print('Admin creato: admin@grapholab.local / Admin1234!')
+
+asyncio.run(seed())
+"
+uvicorn backend.main:app --reload
+```
+
+---
+
 ## Struttura
 
 ```
