@@ -142,17 +142,17 @@ Extract AI logic from `grapholab_demo.py` into a shared `core/` package.
 
 Migration order (most independent first):
 
-- [ ] Create `core/__init__.py`
-- [ ] `core/ner.py` — NER pipeline
-- [ ] `core/ocr.py` — TrOCR + EasyOCR
-- [ ] `core/graphology.py` — HOG, LBP, graphological analysis
-- [ ] `core/writer.py` — writer identification
-- [ ] `core/signature.py` — SigNet + Conditional DETR
-- [ ] `core/rag.py` — RAG + Ollama
-- [ ] `core/dating.py` — document dating (uses OCR internally)
-- [ ] `core/pipeline.py` — full forensic pipeline (aggregates all others)
-- [ ] Update `grapholab_demo.py` to import from `core/`
-- [ ] Verify Gradio demo works identically
+- [x] Create `core/__init__.py`
+- [x] `core/ner.py` — NER pipeline
+- [x] `core/ocr.py` — TrOCR + EasyOCR
+- [x] `core/graphology.py` — HOG, LBP, graphological analysis
+- [x] `core/writer.py` — writer identification
+- [x] `core/signature.py` — SigNet + Conditional DETR
+- [x] `core/rag.py` — RAG + Ollama
+- [x] `core/dating.py` — document dating (uses OCR internally)
+- [x] `core/pipeline.py` — full forensic pipeline (aggregates all others)
+- [x] Update `grapholab_demo.py` to import from `core/`
+- [x] Verify Gradio demo works identically
 - [x] Replace `ultralytics` with Conditional DETR in `core/signature.py`
 - [x] Remove `albumentations` from `requirements.txt`
 
@@ -162,28 +162,30 @@ Branch: `feature/backend` (from `feature/core-modules`)
 
 Professional core that replaces the Jupyter notebooks.
 
-- [ ] FastAPI skeleton + PostgreSQL schema (`users`, `organizations`, `projects`, `documents`, `analyses`, `audit_log`)
-- [ ] JWT authentication (login, logout, refresh, password reset)
-- [ ] Role-based access: admin, examiner, viewer
-- [ ] MinIO integration for document/image storage
-- [ ] CRUD projects per user
-- [ ] 4 AI engines via REST API (HTR, signature verification, signature detection, graphological analysis)
-- [ ] Immutable audit log (forensic requirement — append-only, no UPDATE/DELETE)
-- [ ] PDF report generation (WeasyPrint or ReportLab)
-- [ ] Docker Compose updated with: `postgres`, `minio`, `backend`
+- [x] FastAPI skeleton + PostgreSQL schema (`users`, `organizations`, `projects`, `documents`, `analyses`, `audit_log`)
+- [x] JWT authentication (login, logout, refresh, password reset)
+- [x] Role-based access: admin, examiner, viewer
+- [x] MinIO integration for document/image storage
+- [x] CRUD projects per user
+- [x] 4 AI engines via REST API (HTR, signature verification, signature detection, graphological analysis)
+- [x] Immutable audit log (forensic requirement — append-only, no UPDATE/DELETE)
+- [x] PDF report generation (ReportLab — with images and formatted tables)
+- [x] Docker Compose updated with: `postgres`, `minio`, `backend`
+- [x] RAG / Consulente Forense IA (Ollama + nomic-embed-text)
 
 Branch: `feature/frontend` (from `feature/backend`)
 
-- [ ] React + Tailwind CSS + shadcn/ui scaffold
-- [ ] Auth pages (login, logout, password reset)
-- [ ] Case management dashboard (list, create, delete projects)
-- [ ] Analysis UI for 4 core engines
+- [x] React + Tailwind CSS + shadcn/ui scaffold
+- [x] Auth pages (login, logout, password reset)
+- [x] Case management dashboard (list, create, delete projects)
+- [x] Analysis UI for 4 core engines
 - [ ] Report download
-- [ ] Docker Compose updated with: `frontend`
+- [x] Docker Compose updated with: `frontend`
 
 ### Phase 2 — Mature Product (6–8 weeks)
 
-- [ ] Multilingual support (react-i18next): Italian + English
+- [ ] Report download dal frontend
+- [ ] Multilingual support (react-i18next): Italian + English (struttura i18n già presente)
 - [ ] Batch processing (ZIP archive → automatic pipeline → aggregate report)
 - [ ] Side-by-side sample comparison with annotations (Fabric.js or Konva.js)
 - [ ] Full-text search in archived OCR content (PostgreSQL FTS or Meilisearch)
