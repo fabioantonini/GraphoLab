@@ -26,7 +26,7 @@ router = APIRouter(prefix="/rag", tags=["rag"])
 
 class ChatRequest(BaseModel):
     message: str
-    history: list[list[str]] = []
+    history: list[dict] = []  # [{"role": "user"|"assistant", "content": str}, ...]
 
 
 class DocInfo(BaseModel):
@@ -60,14 +60,14 @@ async def add_doc(
     from pathlib import Path
     from core.rag import rag_add_docs
 
-    suffix = Path(file.filename).suffix
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        tmp.write(await file.read())
-        tmp_path = tmp.name
+    original_name = Path(file.filename).name
+    tmp_dir = Path(tempfile.mkdtemp())
+    tmp_path = tmp_dir / original_name
+    tmp_path.write_bytes(await file.read())
 
     # rag_add_docs expects a list of file-like objects with a .name attribute
     class _FileLike:
-        name = tmp_path
+        name = str(tmp_path)
 
     result = rag_add_docs([_FileLike()], settings.rag_cache_dir)
     return {"detail": result}
@@ -88,13 +88,13 @@ async def chat(
     _: User = Depends(get_current_user),
 ) -> StreamingResponse:
     """Server-Sent Events stream of the RAG response."""
+    import json as _json
     from core.rag import rag_chat_stream
 
     async def _generate():
-        for partial_text, sources in rag_chat_stream(body.message, body.history):
-            # SSE format: "data: <payload>\n\n"
-            yield f"data: {partial_text}\n\n"
-            if sources:
-                yield f"data: {sources}\n\n"
+        # Mirror the Gradio wrapper: combine partial + sources_footer in one update
+        for partial_text, sources_footer in rag_chat_stream(body.message, body.history):
+            content = partial_text + (sources_footer or "")
+            yield f"data: {_json.dumps(content)}\n\n"
 
     return StreamingResponse(_generate(), media_type="text/event-stream")

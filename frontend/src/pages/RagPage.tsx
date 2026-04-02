@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Send, Upload, Trash2, WifiOff } from "lucide-react"
+import { Send, Upload, Trash2, WifiOff, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -12,12 +12,12 @@ interface Message { role: "user" | "assistant"; text: string }
 
 export default function RagPage() {
   const { t } = useTranslation()
-  const { accessToken } = useAuthStore()
   const [online, setOnline] = useState<boolean | null>(null)
   const [docs, setDocs] = useState<{ filename: string; chunks: number }[]>([])
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [streaming, setStreaming] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -39,25 +39,20 @@ export default function RagPage() {
     setMessages((m) => [...m, { role: "user", text: userMsg }])
     setStreaming(true)
 
-    // Build history in [[user, assistant], ...] format
-    const history: string[][] = []
-    const msgs = [...messages]
-    for (let i = 0; i < msgs.length - 1; i += 2) {
-      if (msgs[i]?.role === "user" && msgs[i + 1]?.role === "assistant") {
-        history.push([msgs[i].text, msgs[i + 1].text])
-      }
-    }
+    // Build history as [{role, content}, ...] matching rag_chat_stream expectations
+    const history = messages.map((m) => ({ role: m.role, content: m.text }))
 
     // SSE stream
     let assistantText = ""
     setMessages((m) => [...m, { role: "assistant", text: "" }])
 
     try {
+      const token = useAuthStore.getState().accessToken
       const res = await fetch("/api/rag/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ message: userMsg, history }),
       })
@@ -69,7 +64,7 @@ export default function RagPage() {
         const chunk = decoder.decode(value)
         for (const line of chunk.split("\n")) {
           if (line.startsWith("data: ")) {
-            assistantText += line.slice(6)
+            try { assistantText = JSON.parse(line.slice(6)) } catch { assistantText = line.slice(6) }
             setMessages((m) => {
               const copy = [...m]
               copy[copy.length - 1] = { role: "assistant", text: assistantText }
@@ -86,10 +81,15 @@ export default function RagPage() {
   async function handleUploadDoc(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    await ragApi.addDoc(file)
-    const { data } = await ragApi.listDocs()
-    setDocs(data)
-    e.target.value = ""
+    setUploading(true)
+    try {
+      await ragApi.addDoc(file)
+      const { data } = await ragApi.listDocs()
+      setDocs(data)
+    } finally {
+      setUploading(false)
+      e.target.value = ""
+    }
   }
 
   async function handleRemoveDoc(filename: string) {
@@ -143,9 +143,9 @@ export default function RagPage() {
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm">{t("rag.docs_title")}</CardTitle>
-              <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => fileRef.current?.click()}>
-                <Upload className="h-3.5 w-3.5" />
-                {t("rag.add_doc")}
+              <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => fileRef.current?.click()} disabled={uploading}>
+                {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                {uploading ? t("common.loading") : t("rag.add_doc")}
               </Button>
               <input ref={fileRef} type="file" accept=".pdf,.docx,.txt" className="hidden" onChange={handleUploadDoc} />
             </div>

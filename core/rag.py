@@ -34,7 +34,7 @@ import requests
 OLLAMA_URL = "http://localhost:11434"
 OLLAMA_MODEL = "llama3.2"
 
-_embed_model = OLLAMA_MODEL   # embedding model — changing it invalidates cache
+_embed_model = "nomic-embed-text"  # dedicated embedding model — changing it invalidates cache
 _rag_model = OLLAMA_MODEL     # generation model — selectable via UI
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -173,9 +173,15 @@ def stream_ollama(prompt: str) -> Generator[str, None, None]:
     """Yield response tokens from Ollama one at a time (streaming)."""
     with requests.post(
         f"{OLLAMA_URL}/api/generate",
-        json={"model": _rag_model, "prompt": prompt, "stream": True},
+        json={
+            "model": _rag_model,
+            "prompt": prompt,
+            "stream": True,
+            "keep_alive": "10m",
+            "options": {"num_ctx": 4096},
+        },
         stream=True,
-        timeout=120,
+        timeout=180,
     ) as r:
         for line in r.iter_lines():
             if line:
@@ -188,7 +194,7 @@ def _ollama_embed(text: str) -> np.ndarray | None:
     try:
         r = requests.post(
             f"{OLLAMA_URL}/api/embeddings",
-            json={"model": _embed_model, "prompt": text},
+            json={"model": _embed_model, "prompt": text, "keep_alive": "10m"},
             timeout=30,
         )
         return np.array(r.json()["embedding"], dtype=np.float32)
@@ -201,7 +207,7 @@ def _ollama_embed_batch(texts: list[str]) -> list[np.ndarray | None]:
     try:
         r = requests.post(
             f"{OLLAMA_URL}/api/embed",
-            json={"model": _embed_model, "input": texts},
+            json={"model": _embed_model, "input": texts, "keep_alive": "10m"},
             timeout=max(30, len(texts) * 3),
         )
         r.raise_for_status()
@@ -501,7 +507,7 @@ def rag_retrieve(question: str) -> tuple[list | None, str | None]:
         idxs = np.argsort(scores)[::-1][:k]
         return [(float(scores[i]), pool[i]) for i in idxs]
 
-    user_results = _top_k_from(user_chunks, q_emb, 2)
+    user_results = _top_k_from(user_chunks, q_emb, 5)
     synth_results = _top_k_from(synth_chunks, q_emb, 2 if user_results else 4)
     return user_results + synth_results, None
 

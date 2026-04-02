@@ -11,6 +11,7 @@ Interactive API docs:
 
 from __future__ import annotations
 
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -25,6 +26,13 @@ from backend.routers import auth, users, projects, analysis, rag, audit
 async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle."""
     await init_db()
+    # Load RAG index in background so startup is non-blocking
+    from core.rag import rag_load_docs
+    threading.Thread(
+        target=lambda: rag_load_docs(settings.rag_cache_dir),
+        daemon=True,
+        name="rag-loader",
+    ).start()
     yield
 
 
