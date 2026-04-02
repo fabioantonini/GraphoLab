@@ -11,6 +11,11 @@ i18n
     resources: { it: { translation: it }, en: { translation: en } },
     fallbackLng: "it",
     interpolation: { escapeValue: false },
+    detection: {
+      order: ["localStorage", "navigator"],
+      caches: ["localStorage"],
+      lookupLocalStorage: "grapholab_lang",
+    },
   })
 
 export default i18n
