@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.config import settings
 from backend.database import init_db
-from backend.routers import auth, users, projects, analysis, rag, audit
+from backend.routers import auth, users, projects, analysis, rag, audit, compliance
 
 
 @asynccontextmanager
@@ -59,6 +59,7 @@ app.include_router(users.router)
 app.include_router(projects.router)
 app.include_router(analysis.router)
 app.include_router(rag.router)
+app.include_router(compliance.router)
 app.include_router(audit.router)
 
 

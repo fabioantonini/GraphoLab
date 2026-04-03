@@ -29,12 +29,29 @@ class ChatRequest(BaseModel):
     history: list[dict] = []  # [{"role": "user"|"assistant", "content": str}, ...]
 
 
+class ModelSelect(BaseModel):
+    model: str
+
+
 class DocInfo(BaseModel):
     filename: str
     chunks: int
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
+@router.get("/model")
+async def get_model(_: User = Depends(get_current_user)) -> dict:
+    from core.rag import _rag_model
+    return {"model": _rag_model}
+
+
+@router.put("/model")
+async def set_model(body: ModelSelect, _: User = Depends(get_current_user)) -> dict:
+    from core.rag import set_rag_model
+    msg = set_rag_model(body.model)
+    return {"model": body.model, "detail": msg}
+
 
 @router.get("/status")
 async def rag_status(_: User = Depends(get_current_user)) -> dict:

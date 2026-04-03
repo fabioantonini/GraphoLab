@@ -6,6 +6,7 @@
   "nav": {
     "projects": "Perizie",
     "rag": "Consulente IA",
+    "compliance": "Conformità ENFSI",
     "admin": "Amministrazione",
     "profile": "Profilo",
     "logout": "Esci"
@@ -125,6 +126,23 @@
     "reset_link_expiry": "Scadenza: 24 ore dalla generazione.",
     "copy": "Copia",
     "copied": "Copiato!"
+  },
+  "config": {
+    "title": "Configurazione",
+    "model_label": "Modello IA",
+    "model_loading": "Caricamento modelli…",
+    "model_offline": "Ollama non disponibile",
+    "model_saved": "Modello aggiornato",
+    "refresh": "Aggiorna lista modelli"
+  },
+  "compliance": {
+    "title": "Conformità ENFSI",
+    "subtitle": "Carica una perizia in PDF per verificarne la conformità al BPM ENFSI (Best Practice Manual, Ed.03, sez. 13.2).",
+    "upload_title": "Carica perizia",
+    "upload_btn": "Seleziona PDF",
+    "upload_hint": "Solo file PDF. Il testo viene estratto localmente — il file non lascia il server.",
+    "analyzing": "Analisi in corso…",
+    "result_title": "Report di conformità"
   },
   "common": {
     "loading": "Caricamento…",

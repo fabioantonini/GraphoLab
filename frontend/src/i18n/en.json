@@ -6,6 +6,7 @@
   "nav": {
     "projects": "Cases",
     "rag": "AI Consultant",
+    "compliance": "ENFSI Compliance",
     "admin": "Administration",
     "profile": "Profile",
     "logout": "Sign out"
@@ -125,6 +126,23 @@
     "reset_link_expiry": "Expires: 24 hours from generation.",
     "copy": "Copy",
     "copied": "Copied!"
+  },
+  "config": {
+    "title": "Configuration",
+    "model_label": "AI Model",
+    "model_loading": "Loading models…",
+    "model_offline": "Ollama unavailable",
+    "model_saved": "Model updated",
+    "refresh": "Refresh model list"
+  },
+  "compliance": {
+    "title": "ENFSI Compliance",
+    "subtitle": "Upload a forensic report PDF to check its compliance against the ENFSI BPM (Best Practice Manual, Ed.03, section 13.2).",
+    "upload_title": "Upload report",
+    "upload_btn": "Select PDF",
+    "upload_hint": "PDF files only. Text is extracted locally — the file never leaves the server.",
+    "analyzing": "Analysing…",
+    "result_title": "Compliance report"
   },
   "common": {
     "loading": "Loading…",

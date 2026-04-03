@@ -1,15 +1,17 @@
 import { NavLink } from "react-router-dom"
 import { useTranslation } from "react-i18next"
-import { FolderOpen, MessageSquare, Users, Microscope, LogOut, Globe } from "lucide-react"
+import { FolderOpen, MessageSquare, Users, Microscope, LogOut, Globe, ClipboardCheck, RefreshCw } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth"
-import { authApi } from "@/lib/api"
+import { authApi, ragApi } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import i18n from "@/i18n"
+import { useState, useEffect } from "react"
 
 const links = [
   { to: "/projects", label: "nav.projects", icon: FolderOpen },
   { to: "/rag", label: "nav.rag", icon: MessageSquare },
+  { to: "/compliance", label: "nav.compliance", icon: ClipboardCheck },
 ]
 
 const adminLinks = [
@@ -19,6 +21,35 @@ const adminLinks = [
 export default function Sidebar() {
   const { t } = useTranslation()
   const { user, logout } = useAuthStore()
+
+  const [models, setModels] = useState<string[]>([])
+  const [currentModel, setCurrentModel] = useState<string>("")
+  const [ollamaUp, setOllamaUp] = useState<boolean | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+
+  async function loadModels() {
+    setRefreshing(true)
+    try {
+      const r = await ragApi.status()
+      setOllamaUp(r.data.ollama_reachable)
+      setModels(r.data.models)
+    } catch {
+      setOllamaUp(false)
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  useEffect(() => {
+    loadModels()
+    ragApi.getModel().then(r => setCurrentModel(r.data.model)).catch(() => {})
+  }, [])
+
+  async function handleModelChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const model = e.target.value
+    setCurrentModel(model)
+    try { await ragApi.setModel(model) } catch { /* no-op */ }
+  }
 
   async function handleLogout() {
     try { await authApi.logout() } catch { /* no-op */ }
@@ -80,6 +111,39 @@ export default function Sidebar() {
           </>
         )}
       </nav>
+
+      {/* Configurazione */}
+      <div className="border-t pt-3 px-3 pb-1">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            {t("config.title")}
+          </p>
+          <button
+            onClick={loadModels}
+            disabled={refreshing}
+            title={t("config.refresh")}
+            className="text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
+          >
+            <RefreshCw className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`} />
+          </button>
+        </div>
+        <label className="block text-xs text-muted-foreground mb-1">{t("config.model_label")}</label>
+        {ollamaUp === false ? (
+          <p className="text-xs text-destructive">{t("config.model_offline")}</p>
+        ) : models.length === 0 ? (
+          <p className="text-xs text-muted-foreground">{t("config.model_loading")}</p>
+        ) : (
+          <select
+            value={currentModel}
+            onChange={handleModelChange}
+            className="w-full rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            {models.map(m => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+        )}
+      </div>
 
       {/* Footer */}
       <div className="space-y-1 border-t pt-3">

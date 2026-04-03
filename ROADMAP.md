@@ -192,7 +192,7 @@ Branch: `feature/frontend` (from `feature/backend`)
 - [ ] Data export (CSV, JSON) for third-party system integration
 - [ ] AI model updates without reinstallation
 - [ ] End-user documentation and examiner manual
-- [ ] **Perizia Compliance Checker**: upload PDF perizia esistente → analisi conformità linee guida ENFSI (checklist codificata nel prompt) → report strutturato con ✅ conformità / ⚠️ parziali / ❌ mancanti + raccomandazioni numerate (Ollama LLM, streaming SSE)
+- [x] **Perizia Compliance Checker**: upload PDF perizia esistente → analisi conformità linee guida ENFSI (checklist codificata nel prompt) → report strutturato con ✅ conformità / ⚠️ parziali / ❌ mancanti + raccomandazioni numerate (Ollama LLM, streaming SSE)
 - [ ] **Verifica Firma Grafometrica**: upload due file CSV/XLSX con dati grafometrici (pressione, velocità, coordinate XY) → DTW + cosine similarity su feature aggregate → verdict con report comparativo e score 0-100
 
 ### Phase 3 — Enterprise (variable)

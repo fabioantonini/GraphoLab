@@ -2,6 +2,8 @@
 gradio>=5.0.0
 
 # Core ML / Deep Learning
+# GPU build (CUDA 12.1) — remove the extra-index-url line to fall back to CPU-only
+--extra-index-url https://download.pytorch.org/whl/cu121
 torch>=2.1.0
 torchvision>=0.16.0
 

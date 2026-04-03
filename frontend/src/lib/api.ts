@@ -192,9 +192,16 @@ export const auditApi = {
   },
 }
 
+// Compliance
+export const complianceApi = {
+  status: () => api.get<{ ollama_reachable: boolean }>("/compliance/status"),
+}
+
 // RAG
 export const ragApi = {
   status: () => api.get<{ ollama_reachable: boolean; models: string[] }>("/rag/status"),
+  getModel: () => api.get<{ model: string }>("/rag/model"),
+  setModel: (model: string) => api.put<{ model: string; detail: string }>("/rag/model", { model }),
   listDocs: () => api.get<{ filename: string; chunks: number }[]>("/rag/docs"),
   addDoc: (file: File) => {
     const fd = new FormData()
