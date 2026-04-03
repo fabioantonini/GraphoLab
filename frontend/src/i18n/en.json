@@ -142,7 +142,8 @@
     "upload_btn": "Select PDF",
     "upload_hint": "PDF files only. Text is extracted locally — the file never leaves the server.",
     "analyzing": "Analysing…",
-    "result_title": "Compliance report"
+    "result_title": "Compliance report",
+    "download_pdf": "Download PDF"
   },
   "common": {
     "loading": "Loading…",

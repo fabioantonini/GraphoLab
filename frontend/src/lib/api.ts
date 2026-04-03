@@ -193,8 +193,24 @@ export const auditApi = {
 }
 
 // Compliance
+export interface ComplianceBlock {
+  num: number
+  name: string
+  verdict: "✅" | "⚠️" | "❌" | null
+  motivazione: string
+  suggerimento: string | null
+}
+
 export const complianceApi = {
   status: () => api.get<{ ollama_reachable: boolean }>("/compliance/status"),
+  pdf: (data: {
+    filename: string
+    blocks: ComplianceBlock[]
+    conformi: number
+    parziali: number
+    mancanti: number
+    judgment: string
+  }) => api.post("/compliance/pdf", data, { responseType: "blob" }),
 }
 
 // RAG

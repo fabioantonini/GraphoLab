@@ -142,7 +142,8 @@
     "upload_btn": "Seleziona PDF",
     "upload_hint": "Solo file PDF. Il testo viene estratto localmente — il file non lascia il server.",
     "analyzing": "Analisi in corso…",
-    "result_title": "Report di conformità"
+    "result_title": "Report di conformità",
+    "download_pdf": "Scarica PDF"
   },
   "common": {
     "loading": "Caricamento…",
