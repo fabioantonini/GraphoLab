@@ -399,7 +399,7 @@ export default function AgentPage() {
                 <Plus className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align="start" className="w-56">
+            <DropdownMenuContent align="start" className="w-56 max-h-72 overflow-y-auto">
               <DropdownMenuItem onSelect={() => fileRef.current?.click()}>
                 <Paperclip className="h-4 w-4 mr-2" />
                 {t("agent.attach_files")}
