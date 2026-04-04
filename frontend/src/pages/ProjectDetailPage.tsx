@@ -34,7 +34,7 @@ function AuthImage({ src, alt, className }: { src: string; alt: string; classNam
   return <img src={blobSrc} alt={alt} className={className} />
 }
 
-function AnalysisCard({ analysis }: { analysis: Analysis }) {
+function AnalysisCard({ analysis, onDelete }: { analysis: Analysis; onDelete: (id: number) => void }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [imgSrc, setImgSrc] = useState<string | null>(null)
@@ -72,6 +72,13 @@ function AnalysisCard({ analysis }: { analysis: Analysis }) {
                 PDF
               </Button>
             )}
+            <Button
+              variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
+              title={t("project.delete_analysis")}
+              onClick={() => onDelete(analysis.id)}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setOpen((o) => !o)}>
               {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
             </Button>
@@ -201,6 +208,11 @@ export default function ProjectDetailPage() {
     if (!confirm(t("project.clear_analyses_confirm"))) return
     await analysisApi.clearAll(projectId)
     setAnalyses([])
+  }
+
+  async function handleDeleteAnalysis(analysisId: number) {
+    await analysisApi.deleteOne(analysisId)
+    setAnalyses((a) => a.filter((x) => x.id !== analysisId))
   }
 
   if (loading) return <div className="p-6 text-muted-foreground">{t("common.loading")}</div>
@@ -355,7 +367,7 @@ export default function ProjectDetailPage() {
           {analyses.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t("project.no_analyses")}</p>
           ) : (
-            analyses.map((a) => <AnalysisCard key={a.id} analysis={a} />)
+            analyses.map((a) => <AnalysisCard key={a.id} analysis={a} onDelete={handleDeleteAnalysis} />)
           )}
         </div>
       </div>

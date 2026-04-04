@@ -387,6 +387,23 @@ async def clear_analyses(
     await db.commit()
 
 
+@router.delete("/{analysis_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_analysis(
+    analysis_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    result = await db.execute(select(Analysis).where(Analysis.id == analysis_id))
+    analysis = result.scalar_one_or_none()
+    if analysis is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analisi non trovata.")
+    await _check_project_access(analysis.project_id, db, current_user)
+    await db.delete(analysis)
+    await log_event(db, current_user, AuditAction.analysis_clear,
+                    resource_type="analysis", resource_id=analysis_id)
+    await db.commit()
+
+
 @router.get("/{analysis_id}/image")
 async def get_analysis_image(
     analysis_id: int,

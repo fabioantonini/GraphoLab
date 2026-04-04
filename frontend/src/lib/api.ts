@@ -162,6 +162,7 @@ export const analysisApi = {
     api.post<Analysis>("/analysis/pipeline", { project_id: projectId, document_id: documentId, reference_document_id: referenceDocumentId ?? null }),
   list: (projectId: number) => api.get<Analysis[]>(`/analysis/project/${projectId}`),
   clearAll: (projectId: number) => api.delete(`/analysis/project/${projectId}`),
+  deleteOne: (analysisId: number) => api.delete(`/analysis/${analysisId}`),
   imageUrl: (analysisId: number) => `/api/analysis/${analysisId}/image`,
 }
 
