@@ -445,6 +445,34 @@ async def chat(
                 chat_obj.title = message[:60]
             await db.flush()
 
+    # Build project context to inject into the agent system prompt
+    project_context: str | None = None
+    if project_id is not None:
+        ctx_lines: list[str] = ["--- CONTESTO PROGETTO ---"]
+        # Documents in the project
+        doc_result = await db.execute(
+            select(Document).where(Document.project_id == project_id)
+        )
+        all_docs = doc_result.scalars().all()
+        if all_docs:
+            ctx_lines.append("Documenti disponibili nel progetto:")
+            for d in all_docs:
+                ctx_lines.append(f"  - {d.filename} (id={d.id})")
+        # Previous chats summary (titles only — keep context short)
+        chat_result = await db.execute(
+            select(AgentChat)
+            .options(selectinload(AgentChat.messages))
+            .where(AgentChat.project_id == project_id)
+        )
+        all_chats = chat_result.scalars().all()
+        past_chats = [c for c in all_chats if c.id != chat_id and c.title != "Nuova chat"]
+        if past_chats:
+            ctx_lines.append("Chat precedenti nel progetto:")
+            for c in past_chats[-5:]:  # last 5 chats max
+                ctx_lines.append(f"  - {c.title}")
+        ctx_lines.append("--- FINE CONTESTO ---")
+        project_context = "\n".join(ctx_lines)
+
     # Commit DB changes before streaming (so files/messages are persisted even if client disconnects)
     await db.commit()
 
@@ -458,7 +486,8 @@ async def chat(
         def _worker():
             try:
                 for text in agent_stream(message, file_paths, parsed_history,
-                                         stop_event=stop_event):
+                                         stop_event=stop_event,
+                                         project_context=project_context):
                     final_text[0] = text
                     q.put(text)
             except Exception as e:

@@ -420,11 +420,13 @@ _ALL_TOOLS = [
 # Agent factory  (LangGraph — replaces deprecated AgentExecutor)
 # ──────────────────────────────────────────────────────────────────────────────
 
-def create_forensic_agent(model: str = AGENT_MODEL) -> Any:
+def create_forensic_agent(model: str = AGENT_MODEL, project_context: str | None = None) -> Any:
     """Create a LangGraph react agent with all GraphoLab forensic tools.
 
     Args:
-        model: Ollama model name (default: qwen3:8b).
+        model:           Ollama model name (default: qwen3:8b).
+        project_context: Optional context string injected after the base system
+                         prompt (e.g. list of project documents and past chats).
 
     Returns:
         Compiled LangGraph graph (CompiledGraph).
@@ -435,7 +437,10 @@ def create_forensic_agent(model: str = AGENT_MODEL) -> Any:
     from langchain_ollama import ChatOllama
 
     llm = ChatOllama(model=model, temperature=0)
-    system_msg = SystemMessage(content=FORENSIC_SYSTEM_PROMPT)
+    prompt_text = FORENSIC_SYSTEM_PROMPT
+    if project_context:
+        prompt_text = prompt_text + "\n\n" + project_context
+    system_msg = SystemMessage(content=prompt_text)
 
     # LangGraph ≥0.2.57 uses `prompt`; older versions use `state_modifier`
     sig = inspect.signature(create_react_agent)
@@ -469,6 +474,7 @@ def agent_stream(
     history: list[dict],
     model: str | None = None,
     stop_event: Optional[threading.Event] = None,
+    project_context: str | None = None,
 ) -> Generator[str, None, None]:
     """Run the forensic agent and stream accumulated response text.
 
@@ -517,7 +523,7 @@ def agent_stream(
             messages.append(AIMessage(content=content))
     messages.append(HumanMessage(content=full_message))
 
-    agent = create_forensic_agent(model)
+    agent = create_forensic_agent(model, project_context=project_context)
 
     accumulated = ""
     tool_log: list[str] = []
