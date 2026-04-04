@@ -5,6 +5,7 @@
   },
   "nav": {
     "projects": "Perizie",
+    "agent": "Agente Documentale",
     "rag": "Consulente IA",
     "compliance": "Conformità ENFSI",
     "admin": "Amministrazione",
@@ -70,6 +71,16 @@
     "pipeline_ref_hint": "Seleziona un documento con una firma autentica nota per abilitare la verifica firma nello Step 6. Puoi anche procedere senza.",
     "pipeline_ref_skip": "— nessuna firma di riferimento —"
   },
+  "agent": {
+    "title": "Agente Documentale",
+    "placeholder": "Descrivi cosa vuoi fare con il documento… (Invio per inviare, Shift+Invio per andare a capo)",
+    "offline": "Ollama non disponibile",
+    "offline_hint": "Ollama non raggiungibile. Avvia Ollama per usare l'agente.",
+    "attach_files": "Allega file (immagini, PDF)",
+    "empty_hint": "Carica un documento e descrivi cosa vuoi analizzare. Puoi usare i prompt suggeriti sopra.",
+    "input_hint": "Invio per inviare · Shift+Invio per andare a capo · Allega immagini e PDF con 📎",
+    "tools_used": "Strumenti utilizzati"
+  },
   "rag": {
     "title": "Consulente Forense IA",
     "placeholder": "Fai una domanda alla knowledge base…",
@@ -133,7 +144,8 @@
     "model_loading": "Caricamento modelli…",
     "model_offline": "Ollama non disponibile",
     "model_saved": "Modello aggiornato",
-    "refresh": "Aggiorna lista modelli"
+    "refresh": "Aggiorna lista modelli",
+    "ocr_model_label": "Modello OCR"
   },
   "compliance": {
     "title": "Conformità ENFSI",

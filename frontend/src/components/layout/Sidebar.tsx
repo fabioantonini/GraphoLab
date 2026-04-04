@@ -1,6 +1,6 @@
 import { NavLink } from "react-router-dom"
 import { useTranslation } from "react-i18next"
-import { FolderOpen, MessageSquare, Users, Microscope, LogOut, Globe, ClipboardCheck, RefreshCw } from "lucide-react"
+import { FolderOpen, MessageSquare, Users, Microscope, LogOut, Globe, ClipboardCheck, RefreshCw, Bot } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth"
 import { authApi, ragApi } from "@/lib/api"
@@ -10,6 +10,7 @@ import { useState, useEffect } from "react"
 
 const links = [
   { to: "/projects", label: "nav.projects", icon: FolderOpen },
+  { to: "/agent", label: "nav.agent", icon: Bot },
   { to: "/rag", label: "nav.rag", icon: MessageSquare },
   { to: "/compliance", label: "nav.compliance", icon: ClipboardCheck },
 ]
@@ -24,8 +25,11 @@ export default function Sidebar() {
 
   const [models, setModels] = useState<string[]>([])
   const [currentModel, setCurrentModel] = useState<string>("")
+  const [currentOcrModel, setCurrentOcrModel] = useState<string>("easyocr")
   const [ollamaUp, setOllamaUp] = useState<boolean | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+
+  const OCR_MODELS = ["easyocr", "vlm", "paddleocr", "trocr"]
 
   async function loadModels() {
     setRefreshing(true)
@@ -43,12 +47,19 @@ export default function Sidebar() {
   useEffect(() => {
     loadModels()
     ragApi.getModel().then(r => setCurrentModel(r.data.model)).catch(() => {})
+    ragApi.getOcrModel().then(r => setCurrentOcrModel(r.data.ocr_model)).catch(() => {})
   }, [])
 
   async function handleModelChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const model = e.target.value
     setCurrentModel(model)
     try { await ragApi.setModel(model) } catch { /* no-op */ }
+  }
+
+  async function handleOcrModelChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const model = e.target.value
+    setCurrentOcrModel(model)
+    try { await ragApi.setOcrModel(model) } catch { /* no-op */ }
   }
 
   async function handleLogout() {
@@ -143,6 +154,16 @@ export default function Sidebar() {
             ))}
           </select>
         )}
+        <label className="block text-xs text-muted-foreground mt-2 mb-1">{t("config.ocr_model_label")}</label>
+        <select
+          value={currentOcrModel}
+          onChange={handleOcrModelChange}
+          className="w-full rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+        >
+          {OCR_MODELS.map(m => (
+            <option key={m} value={m}>{m}</option>
+          ))}
+        </select>
       </div>
 
       {/* Footer */}

@@ -53,6 +53,19 @@ async def set_model(body: ModelSelect, _: User = Depends(get_current_user)) -> d
     return {"model": body.model, "detail": msg}
 
 
+@router.get("/ocr-model")
+async def get_ocr_model_endpoint(_: User = Depends(get_current_user)) -> dict:
+    from core.ocr import get_ocr_model
+    return {"ocr_model": get_ocr_model()}
+
+
+@router.put("/ocr-model")
+async def set_ocr_model_endpoint(body: ModelSelect, _: User = Depends(get_current_user)) -> dict:
+    from core.ocr import set_ocr_model
+    msg = set_ocr_model(body.model)
+    return {"ocr_model": body.model, "detail": msg}
+
+
 @router.get("/status")
 async def rag_status(_: User = Depends(get_current_user)) -> dict:
     from core.rag import check_ollama, ollama_list_models

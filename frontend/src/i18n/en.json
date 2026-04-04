@@ -5,6 +5,7 @@
   },
   "nav": {
     "projects": "Cases",
+    "agent": "Document Agent",
     "rag": "AI Consultant",
     "compliance": "ENFSI Compliance",
     "admin": "Administration",
@@ -70,6 +71,16 @@
     "pipeline_ref_hint": "Select a document with a known authentic signature to enable signature verification in Step 6. You can also proceed without one.",
     "pipeline_ref_skip": "— no reference signature —"
   },
+  "agent": {
+    "title": "Document Agent",
+    "placeholder": "Describe what you want to do with the document… (Enter to send, Shift+Enter for new line)",
+    "offline": "Ollama unavailable",
+    "offline_hint": "Ollama not reachable. Start Ollama to use the agent.",
+    "attach_files": "Attach files (images, PDFs)",
+    "empty_hint": "Upload a document and describe what you want to analyse. Use the suggested prompts above.",
+    "input_hint": "Enter to send · Shift+Enter for new line · Attach images and PDFs with 📎",
+    "tools_used": "Tools used"
+  },
   "rag": {
     "title": "AI Forensic Consultant",
     "placeholder": "Ask a question about the knowledge base…",
@@ -133,7 +144,8 @@
     "model_loading": "Loading models…",
     "model_offline": "Ollama unavailable",
     "model_saved": "Model updated",
-    "refresh": "Refresh model list"
+    "refresh": "Refresh model list",
+    "ocr_model_label": "OCR Model"
   },
   "compliance": {
     "title": "ENFSI Compliance",

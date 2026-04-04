@@ -4,6 +4,7 @@ GraphoLab Backend — Async SQLAlchemy database setup.
 
 from __future__ import annotations
 
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -18,6 +19,19 @@ else:
     _engine_kwargs["pool_pre_ping"] = True
 
 engine = create_async_engine(settings.database_url, **_engine_kwargs)
+
+if _is_sqlite:
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_sqlite_pragmas(dbapi_conn, _conn_record):
+        """Enable WAL mode and busy timeout on every new SQLite connection.
+
+        WAL mode: allows concurrent reads + 1 writer without locking errors.
+        busy_timeout: SQLite waits up to 10s before raising 'database is locked'.
+        """
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=10000")
+        cursor.close()
 
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,

@@ -8,121 +8,189 @@ sdk_version: "5.25.0"
 app_file: app/grapholab_demo.py
 pinned: false
 license: apache-2.0
-short_description: AI-powered forensic graphology demo (HTR, signatures, NER)
+short_description: AI-powered forensic graphology platform (HTR, signatures, NER, ENFSI compliance)
 ---
 
 # GraphoLab — Forensic Graphology Laboratory
 
-A collection of AI-powered demo labs showing how machine learning and computer vision can be applied to **forensic graphology**: the scientific examination of handwriting and signatures for legal purposes.
+An AI-powered platform for **forensic graphology**: scientific examination of handwriting and signatures for legal purposes.
+
+GraphoLab ships in two forms:
+
+| Mode | Description |
+|------|-------------|
+| **Professional app** | FastAPI backend + React frontend — multi-user, JWT auth, PostgreSQL, MinIO, audit log |
+| **Gradio demo** | Single-user interactive demo, runs locally or on Hugging Face Spaces |
 
 ---
 
-## Labs Overview
+## AI Capabilities
 
-### Jupyter Notebooks (offline)
-
-| Lab | Notebook | AI Technique | Model / Tool |
-|-----|----------|-------------|--------------|
-| 01 | [Introduction](notebooks/01_intro_forensic_graphology.ipynb) | — | Conceptual overview |
-| 02 | [Handwritten OCR](notebooks/02_handwritten_ocr_trocr.ipynb) | Transformer OCR | `microsoft/trocr-base-handwritten` |
-| 03 | [Signature Verification](notebooks/03_signature_verification_siamese.ipynb) | Siamese Network | SigNet (luizgh/sigver) |
-| 04 | [Signature Detection](notebooks/04_signature_detection_detr.ipynb) | Object Detection | Conditional DETR (tech4humans) |
-| 05 | [Writer Identification](notebooks/05_writer_identification.ipynb) | HOG + SVM | scikit-learn |
-| 06 | [Graphological Analysis](notebooks/06_graphological_feature_analysis.ipynb) | Image Processing | OpenCV |
-| 07 | [Named Entity Recognition](notebooks/07_named_entity_recognition.ipynb) | Token Classification | `Babelscape/wikineural-multilingual-ner` |
-| 08 | [dots.ocr VLM](notebooks/08_dots_ocr_vlm.ipynb) | Vision-Language Model | `rednote-hilab/dots.ocr` (1.7B params) |
-
-See [docs/NOTEBOOKS_GUIDE.md](docs/NOTEBOOKS_GUIDE.md) for a full description of each lab.
-
-### Gradio Demo Tabs (interactive)
-
-| Tab | Name | Description |
-|-----|------|-------------|
-| 1 | OCR Manoscritto | Handwritten text transcription with EasyOCR |
-| 2 | Verifica Firma | Signature verification with SigNet (Siamese network) |
-| 3 | Rilevamento Firma | Signature detection in documents with Conditional DETR |
-| 4 | Riconoscimento Entità | Named entity recognition (NER) on transcribed text |
-| 5 | Identificazione Scrittore | Writer identification with HOG + SVM |
-| 6 | Analisi Grafologica | Graphological feature analysis (slant, pressure, spacing) |
-| 7 | Perizia Forense Automatica | **Full forensic pipeline**: runs all 6 AI tools in sequence, then synthesizes a complete forensic report via **Ollama LLM** (local, no data sent online) |
-| 8 | Datazione Documenti | Chronological ordering of multiple documents by extracted dates (EasyOCR + dateparser) |
-| 9 | Consulente Forense IA | **RAG chatbot**: upload PDF/DOCX documents to enrich the knowledge base, then ask questions in Italian answered by a local Ollama LLM |
+| Engine | Technique | Model |
+|--------|-----------|-------|
+| Handwritten OCR (HTR) | Transformer OCR | `microsoft/trocr-base-handwritten` + EasyOCR |
+| Signature Verification | Siamese Network | SigNet (luizgh/sigver) |
+| Signature Detection | Object Detection | Conditional DETR (tech4humans, Apache 2.0) |
+| Named Entity Recognition | Token Classification | `Babelscape/wikineural-multilingual-ner` |
+| Writer Identification | HOG + SVM | scikit-learn |
+| Graphological Analysis | Image Processing | OpenCV + scikit-image |
+| Document Dating | OCR + dateparser | EasyOCR + multilingual date parsing |
+| Full Forensic Pipeline | All engines in sequence | Ollama LLM synthesis |
+| RAG / AI Consultant | Retrieval-Augmented Generation | Ollama + nomic-embed-text |
+| **ENFSI Compliance Checker** | LLM structured analysis | Ollama (qwen3:8b recommended) |
 
 ---
 
-## Quick Start
+## Professional App (FastAPI + React)
 
-### Local (Python)
+### Features
 
-Requires Python 3.11, 3.12, or 3.13.
+- **Case management**: create, manage and archive forensic cases
+- **Document storage**: MinIO S3-compatible storage (on-premise)
+- **AI analysis**: all 8 engines via REST API with streaming SSE
+- **PDF report generation**: forensic report with images and formatted tables
+- **RAG chatbot**: upload PDF/DOCX to build a knowledge base, query with local LLM
+- **ENFSI Compliance Checker**: upload a perizia PDF → LLM analysis against 20 ENFSI BPM-FHX-01 Ed.03 requirements → structured report with ✅/⚠️/❌ verdicts, suggestions, PDF export
+- **Immutable audit log**: append-only forensic chain of custody
+- **JWT authentication**: login, refresh, password reset
+- **Role-based access**: admin, examiner, viewer
+- **Multilingual UI**: Italian / English (react-i18next)
+
+### Quick Start (Docker)
 
 ```bash
-# Create a virtual environment with Python 3.11
-py -3.11 -m venv venv
-venv\Scripts\activate        # Windows
-# source venv/bin/activate   # Linux/macOS
+# Copy and edit environment variables
+cp .env.example .env   # set SECRET_KEY at minimum
 
-# Install PyTorch with CUDA 12.4 (GPU) — skip --index-url for CPU only
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+# Start all services (PostgreSQL, MinIO, backend, frontend, Ollama)
+docker compose up
+
+# Services:
+#   Frontend  → http://localhost:3000
+#   Backend   → http://localhost:8000/docs  (OpenAPI)
+#   MinIO     → http://localhost:9001       (admin console)
+#   Ollama    → http://localhost:11434
+
+# Pull a model for LLM features (recommended: qwen3:8b for RTX 4070 8GB)
+ollama pull qwen3:8b
+```
+
+### Quick Start (local development)
+
+```bash
+# Backend
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+pip install -r requirements.txt -r requirements-backend.txt
+uvicorn backend.main:app --reload
+
+# Frontend
+cd frontend
+npm install
+npm run dev   # http://localhost:5173
+```
+
+### Architecture
+
+```
+grapholab/
+├── core/                    # Shared AI logic (no web framework dependency)
+│   ├── ocr.py               # TrOCR + EasyOCR
+│   ├── signature.py         # SigNet + Conditional DETR
+│   ├── graphology.py        # HOG, LBP, graphological features
+│   ├── ner.py               # Named entity recognition
+│   ├── writer.py            # Writer identification
+│   ├── dating.py            # Document dating
+│   ├── pipeline.py          # Full forensic pipeline
+│   ├── rag.py               # RAG + Ollama integration
+│   └── compliance.py        # ENFSI compliance checker
+├── backend/                 # FastAPI professional app
+│   ├── routers/             # auth, users, projects, analysis, rag, compliance, audit
+│   ├── models/              # SQLAlchemy models
+│   └── storage/             # MinIO client
+├── frontend/                # React + Tailwind CSS + shadcn/ui SPA
+│   └── src/
+│       ├── pages/           # ProjectsPage, ProjectPage, RagPage, CompliancePage, AdminPage
+│       └── components/
+├── app/
+│   └── grapholab_demo.py    # Gradio demo (preserved, imports from core/)
+├── notebooks/               # Jupyter labs (01–08)
+├── docker-compose.yml
+├── requirements.txt         # Core + Gradio dependencies
+└── requirements-backend.txt # FastAPI + PostgreSQL + MinIO dependencies
+```
+
+### API
+
+The FastAPI backend auto-generates OpenAPI docs at `http://localhost:8000/docs`.
+
+Main endpoint groups:
+
+| Prefix | Description |
+|--------|-------------|
+| `/auth` | Login, refresh, password reset |
+| `/users` | User management |
+| `/projects` | Case CRUD + document upload |
+| `/analysis` | Run AI engines, download PDF report |
+| `/rag` | RAG chatbot, document indexing, model selection |
+| `/compliance` | ENFSI compliance check (SSE stream + PDF export) |
+| `/audit` | Immutable activity log |
+
+---
+
+## Gradio Demo
+
+Interactive single-user demo, also available on [Hugging Face Spaces](https://huggingface.co/spaces/fabioantonini/grapholab).
+
+### Run locally
+
+```bash
 pip install -r requirements.txt
-
-# Run JupyterLab
-jupyter lab notebooks/
-
-# Run Gradio demo
 python app/grapholab_demo.py
 # Open http://localhost:7860
 ```
 
-### Docker
+### Tabs
 
-Docker images use `nvidia/cuda:12.4.1` as base and support GPU automatically via the WSL2 backend on Windows (no extra configuration needed if NVIDIA drivers are installed).
+| Tab | Name | Description |
+|-----|------|-------------|
+| 1 | OCR Manoscritto | Handwritten text transcription |
+| 2 | Verifica Firma | Signature verification (SigNet) |
+| 3 | Rilevamento Firma | Signature detection (Conditional DETR) |
+| 4 | Riconoscimento Entità | Named entity recognition |
+| 5 | Identificazione Scrittore | Writer identification (HOG + SVM) |
+| 6 | Analisi Grafologica | Graphological feature analysis |
+| 7 | Perizia Forense Automatica | Full forensic pipeline + LLM synthesis |
+| 8 | Datazione Documenti | Document dating |
+| 9 | Consulente Forense IA | RAG chatbot (local Ollama LLM) |
+
+---
+
+## Jupyter Notebooks
+
+| Lab | Notebook | AI Technique |
+|-----|----------|-------------|
+| 01 | Introduction | Conceptual overview |
+| 02 | Handwritten OCR | TrOCR |
+| 03 | Signature Verification | SigNet (Siamese network) |
+| 04 | Signature Detection | Conditional DETR |
+| 05 | Writer Identification | HOG + SVM |
+| 06 | Graphological Analysis | OpenCV |
+| 07 | Named Entity Recognition | Token classification |
+| 08 | dots.ocr VLM | Vision-Language Model (1.7B) |
 
 ```bash
-# JupyterLab at http://localhost:8888  (token: grapholab)
-docker compose up jupyter
-
-# Gradio demo at http://localhost:7860
-docker compose up gradio
-
-# Both services
-docker compose up
+jupyter lab notebooks/
 ```
 
 ---
 
-## Project Structure
+## Requirements
 
-```
-GraphoLab/
-├── notebooks/              ← Jupyter labs (01–07)
-├── app/
-│   └── grapholab_demo.py   ← Gradio interactive demo (9 tabs, Italian UI)
-├── data/
-│   └── samples/
-│       ├── writer_XX/      ← Writer identification database (5 writers, 41 samples each)
-│       └── *.png           ← Handwriting and signature sample images
-├── docs/
-│   ├── NOTEBOOKS_GUIDE.md       ← Detailed lab descriptions (EN)
-│   ├── NOTEBOOKS_GUIDE_IT.md    ← Detailed lab descriptions (IT)
-│   └── GraphoLab_Presentazione.pptx  ← Presentation with speaker notes
-├── models/                 ← Pre-trained model weights (e.g. signet.pth)
-├── tools/
-│   └── generate_presentation.py ← Script to regenerate the PPTX
-├── Dockerfile
-├── docker-compose.yml
-└── requirements.txt
-```
-
----
-
-## Sample Data
-
-Add handwriting and signature images to `data/samples/`. Each notebook also generates synthetic fallback images automatically, so labs run end-to-end without any real data.
-
-The writer identification database (`data/samples/writer_XX/`) contains five writers with 41 samples each, generated with system TTF fonts (Ink Free, Lucida Handwriting, Segoe Print, Segoe Script, Comic Sans). Replace with real handwriting scans for production use.
-
-See [data/samples/README.md](data/samples/README.md) for naming conventions.
+- Python 3.11–3.13
+- NVIDIA GPU recommended (CUDA 12.x) — CPU fallback available
+- [Ollama](https://ollama.com) for LLM features (pipeline synthesis, RAG, compliance checker)
+  - Recommended model: `qwen3:8b` (fits in 8GB VRAM, RTX 4070 Laptop GPU)
+- Docker + nvidia-container-toolkit for containerized GPU inference
 
 ---
 
@@ -131,34 +199,12 @@ See [data/samples/README.md](data/samples/README.md) for naming conventions.
 | Use case | Resource |
 |----------|----------|
 | Handwritten OCR | [microsoft/trocr-base-handwritten](https://huggingface.co/microsoft/trocr-base-handwritten) |
-| Handwritten OCR (VLM, notebook only) | [rednote-hilab/dots.ocr](https://huggingface.co/rednote-hilab/dots.ocr) — 1.7B Vision-Language Model |
-| Signature Detection | [tech4humans/conditional-detr-50-signature-detector](https://huggingface.co/tech4humans/conditional-detr-50-signature-detector) |
+| Signature Detection | [tech4humans/conditional-detr-50-signature-detector](https://huggingface.co/tech4humans/conditional-detr-50-signature-detector) (Apache 2.0) |
 | Signature Verification | [luizgh/sigver](https://github.com/luizgh/sigver) |
 | NER | [Babelscape/wikineural-multilingual-ner](https://huggingface.co/Babelscape/wikineural-multilingual-ner) |
-| Forensic report synthesis & RAG chatbot | [Ollama](https://ollama.com) — local LLM (no data sent online) |
-| Graphology ML reference | [CVxTz/handwriting_forensics](https://github.com/CVxTz/handwriting_forensics) |
-
-### Ollama — Local LLM (tabs 7 and 9)
-
-Tabs **Perizia Forense Automatica** (7) and **Consulente Forense IA** (9) require a running [Ollama](https://ollama.com) instance with at least one model pulled.
-
-```bash
-# Install Ollama, then pull a model (e.g. llama3 or mistral)
-ollama pull llama3
-
-# Ollama listens on http://localhost:11434 by default
-ollama serve
-```
-
-Without Ollama, both tabs degrade gracefully: tab 7 skips the LLM synthesis step and tab 9 shows an informational message.
-
----
-
-### Signature Detection — Model Access
-
-The `tech4humans/conditional-detr-50-signature-detector` model is publicly available on Hugging Face under the Apache 2.0 licence — no authentication token required.
-
-The model is downloaded automatically on first run via the `transformers` library and cached locally.
+| Embeddings (RAG) | [nomic-embed-text](https://ollama.com/library/nomic-embed-text) via Ollama |
+| LLM inference | [Ollama](https://ollama.com) — local, no data sent online |
+| ENFSI standard | BPM-FHX-01 Ed.03 — Best Practice Manual for Forensic Examination of Handwriting |
 
 ---
 

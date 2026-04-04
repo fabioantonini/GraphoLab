@@ -290,6 +290,50 @@ def generate_forensic_pdf(results: PipelineResults) -> str:
         pdf.multi_cell(0, 5, _md_to_plain(text))
         pdf.ln(3)
 
+    def _llm_text(text: str):
+        """Render LLM Markdown report with styled headings and bullet points."""
+        if not text:
+            return
+        _heading_re = re.compile(r"^(#{1,6})\s+(.*)")
+        _bullet_re  = re.compile(r"^[-*]\s+(.*)")
+        _bold_re    = re.compile(r"\*{1,2}(.+?)\*{1,2}")
+
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                pdf.ln(2)
+                continue
+
+            m_heading = _heading_re.match(stripped)
+            m_bullet  = _bullet_re.match(stripped)
+
+            if m_heading:
+                level   = len(m_heading.group(1))
+                heading = _bold_re.sub(r"\1", m_heading.group(2))
+                if level >= 3:          # H3/H4/H5/H6 → teal
+                    pdf.set_font("Helvetica", "B", 10)
+                    pdf.set_text_color(30, 100, 120)
+                    pdf.multi_cell(0, 6, _to_latin1(heading))
+                else:                   # H1/H2 → dark blue
+                    pdf.set_font("Helvetica", "B", 11)
+                    pdf.set_text_color(50, 80, 120)
+                    pdf.multi_cell(0, 6, _to_latin1(heading))
+                pdf.set_text_color(40, 40, 40)
+            elif m_bullet:
+                content = _bold_re.sub(r"\1", m_bullet.group(1))
+                pdf.set_font("Helvetica", "", 10)
+                pdf.set_x(pdf.get_x() + 4)
+                pdf.multi_cell(0, 5, _to_latin1(f"\u2022  {content}"))
+            elif stripped.startswith("**") and stripped.endswith("**"):
+                content = _bold_re.sub(r"\1", stripped)
+                pdf.set_font("Helvetica", "B", 10)
+                pdf.multi_cell(0, 5, _to_latin1(content))
+            else:
+                content = _bold_re.sub(r"\1", stripped)
+                pdf.set_font("Helvetica", "", 10)
+                pdf.multi_cell(0, 5, _to_latin1(content))
+        pdf.ln(3)
+
     def _embed_image(arr, max_w: int = 170):
         data = _numpy_to_jpeg_bytes(arr)
         if data is None:
@@ -327,7 +371,7 @@ def generate_forensic_pdf(results: PipelineResults) -> str:
     _embed_image(results.sig_verify_chart)
 
     _section_title("Step 7 — Valutazione LLM (Ollama)")
-    _body_text(results.llm_report)
+    _llm_text(results.llm_report)
 
     pdf.ln(6)
     pdf.set_draw_color(180, 180, 180)

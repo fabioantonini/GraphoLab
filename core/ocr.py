@@ -20,6 +20,61 @@ import numpy as np
 
 TROCR_MODEL = "microsoft/trocr-large-handwritten"
 
+# Active OCR model — set via set_ocr_model() / sidebar selector
+# Options: "easyocr" | "vlm" | "paddleocr" | "trocr"
+def _load_ocr_model_from_env() -> str:
+    import os
+    val = os.environ.get("OCR_MODEL", "").strip().lower()
+    if val in {"easyocr", "vlm", "paddleocr", "trocr"}:
+        return val
+    try:
+        from pathlib import Path
+        env_file = Path(__file__).parent.parent / ".env"
+        if env_file.exists():
+            for line in env_file.read_text(encoding="utf-8").splitlines():
+                if line.startswith("OCR_MODEL="):
+                    v = line.split("=", 1)[1].strip().lower()
+                    if v in {"easyocr", "vlm", "paddleocr", "trocr"}:
+                        return v
+    except Exception:
+        pass
+    return "easyocr"
+
+_ocr_model: str = _load_ocr_model_from_env()
+
+
+def get_ocr_model() -> str:
+    return _ocr_model
+
+
+def set_ocr_model(model: str) -> str:
+    global _ocr_model
+    allowed = {"easyocr", "vlm", "paddleocr", "trocr"}
+    if model not in allowed:
+        return f"❌ Modello non valido. Scegli tra: {', '.join(sorted(allowed))}"
+    _ocr_model = model
+    _persist_ocr_model(model)
+    return f"✅ Modello OCR: **{_ocr_model}**"
+
+
+def _persist_ocr_model(model: str) -> None:
+    """Write OCR_MODEL=<model> to .env for persistence across restarts."""
+    from pathlib import Path as _Path
+    env_file = _Path(__file__).parent.parent / ".env"
+    try:
+        lines = env_file.read_text(encoding="utf-8").splitlines() if env_file.exists() else []
+        found = False
+        for i, line in enumerate(lines):
+            if line.startswith("OCR_MODEL="):
+                lines[i] = f"OCR_MODEL={model}"
+                found = True
+                break
+        if not found:
+            lines.append(f"OCR_MODEL={model}")
+        env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except Exception:
+        pass
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Lazy model loaders
 # ──────────────────────────────────────────────────────────────────────────────
@@ -102,18 +157,129 @@ def _preprocess_for_htr(image: np.ndarray) -> np.ndarray:
 # Core function
 # ──────────────────────────────────────────────────────────────────────────────
 
+_HTR_PROMPT = (
+    "Sei un esperto paleografo forense. Trascrivi FEDELMENTE tutto il testo "
+    "presente in questa immagine, incluso testo manoscritto, stampato o misto.\n"
+    "- Mantieni la struttura del documento (paragrafi, a capo, elenchi).\n"
+    "- Se una parola è illeggibile scrivi [illeggibile].\n"
+    "- NON aggiungere commenti o spiegazioni: rispondi SOLO con il testo trascritto."
+)
+
+
+def _vlm_transcribe(image: np.ndarray, ollama_url: str = "http://localhost:11434") -> str:
+    """Transcribe via qwen3-vl:8b (Ollama) using streaming API.
+
+    Uses stream=True so the HTTP connection stays alive token-by-token,
+    avoiding read timeouts on long documents.
+    Raises on any failure.
+    """
+    import base64
+    import io
+    import json
+    import requests
+    from PIL import Image as _PILImage
+
+    if image.ndim == 2:
+        pil_img = _PILImage.fromarray(image).convert("RGB")
+    else:
+        pil_img = _PILImage.fromarray(image)
+
+    # Resize to max 1500px on the longer side to keep inference fast
+    max_side = 1500
+    w, h = pil_img.size
+    if max(w, h) > max_side:
+        scale = max_side / max(w, h)
+        pil_img = pil_img.resize((int(w * scale), int(h * scale)), _PILImage.LANCZOS)
+
+    buf = io.BytesIO()
+    pil_img.save(buf, format="JPEG", quality=90)
+    b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+
+    # Use the globally selected model if set, else hardcoded qwen3-vl:8b
+    try:
+        from core.rag import _rag_model
+        model = _rag_model or "qwen3-vl:8b"
+    except Exception:
+        model = "qwen3-vl:8b"
+
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": _HTR_PROMPT, "images": [b64]}],
+        "stream": True,
+        "options": {"temperature": 0},
+    }
+    # stream=True: each line is a JSON chunk; connection stays alive per token
+    r = requests.post(
+        f"{ollama_url}/api/chat",
+        json=payload,
+        stream=True,
+        timeout=(10, 300),  # (connect timeout, read timeout between chunks)
+    )
+    r.raise_for_status()
+    content = []
+    for line in r.iter_lines():
+        if not line:
+            continue
+        chunk = json.loads(line)
+        content.append(chunk.get("message", {}).get("content", ""))
+        if chunk.get("done"):
+            break
+    return "".join(content).strip()
+
+
 def htr_transcribe(image: np.ndarray) -> str:
-    """Transcribe a handwritten image to text using EasyOCR.
+    """Transcribe a handwritten image to text using the active OCR model.
+
+    The active model is controlled by set_ocr_model() / sidebar selector:
+      - "easyocr"   : EasyOCR (default, fast, good for printed+handwritten)
+      - "vlm"       : qwen3-vl via Ollama (best for cursive Italian)
+      - "paddleocr" : PaddleOCR (good for mixed documents)
+      - "trocr"     : Microsoft TrOCR large handwritten
 
     Args:
         image: RGB numpy array (H, W, 3) or grayscale (H, W).
-
-    Returns:
-        Transcribed text as a string. Returns an error message if image is None.
     """
     if image is None:
         return "Carica un'immagine di testo manoscritto."
+
+    model = _ocr_model
+
+    if model == "vlm":
+        try:
+            return _vlm_transcribe(image)
+        except Exception as e:
+            return f"Errore VLM: {e}"
+
+    if model == "paddleocr":
+        try:
+            from core.document_layout import extract_ordered_text as _paddle_ocr
+            import tempfile, os
+            from PIL import Image as _PILImage
+            tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+            _PILImage.fromarray(image).save(tmp.name)
+            tmp.close()
+            result = _paddle_ocr(tmp.name)
+            os.unlink(tmp.name)
+            return result
+        except Exception as e:
+            return f"Errore PaddleOCR: {e}"
+
+    if model == "trocr":
+        try:
+            import torch
+            from PIL import Image as _PILImage
+            processor, trocr_model = get_trocr()
+            pil_img = _PILImage.fromarray(image).convert("RGB")
+            pixel_values = processor(images=pil_img, return_tensors="pt").pixel_values
+            device = next(trocr_model.parameters()).device
+            pixel_values = pixel_values.to(device)
+            with torch.no_grad():
+                ids = trocr_model.generate(pixel_values)
+            return processor.batch_decode(ids, skip_special_tokens=True)[0]
+        except Exception as e:
+            return f"Errore TrOCR: {e}"
+
+    # Default: EasyOCR — read raw RGB, no preprocessing
     reader = get_easyocr()
-    processed = _preprocess_for_htr(image)
-    results = reader.readtext(processed, detail=0, paragraph=True)
+    results = reader.readtext(image, detail=0, paragraph=True)
     return "\n".join(results)

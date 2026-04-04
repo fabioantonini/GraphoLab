@@ -49,6 +49,7 @@ from core.rag import (
     rag_doc_list as _rag_doc_list, rag_doc_choices as _rag_doc_choices,
     rag_chat_stream, _rag_ready,
 )
+from core.agent import agent_stream, SUGGESTED_PROMPTS, AGENT_MODEL
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Configuration
@@ -756,6 +757,130 @@ with gr.Blocks() as rag_tab:
     )
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Tab 11 — Agente Documentale
+# ──────────────────────────────────────────────────────────────────────────────
+
+with gr.Blocks() as agent_tab:
+    gr.Markdown(
+        "## Agente Documentale\n"
+        "Descrivi in linguaggio naturale cosa vuoi fare e l'agente sceglierà automaticamente "
+        "quali strumenti GraphoLab usare: trascrizione, NER, rilevamento firma, verifica firma, "
+        "grafologia, identificazione scrittore, layout, datazione e molto altro.\n\n"
+        "Allega uno o più file (immagini o PDF) e scrivi la tua richiesta.\n\n"
+        "*Motore: LangGraph + qwen3-vl:8b (Ollama locale)*"
+    )
+
+    if not _OLLAMA_AVAILABLE:
+        gr.Markdown(
+            "> ⚠️ **Funzionalità non disponibile in questa demo pubblica.**\n>\n"
+            "> L'Agente Documentale richiede **Ollama** in esecuzione localmente (`ollama serve`) "
+            "con il modello **qwen3-vl:8b** scaricato (`ollama pull qwen3-vl:8b`).\n>\n"
+            "> Per usare questa funzionalità, esegui GraphoLab localmente:\n"
+            "> ```\n"
+            "> ollama pull qwen3-vl:8b\n"
+            "> ollama serve\n"
+            "> python app/grapholab_demo.py\n"
+            "> ```"
+        )
+
+    # Suggested prompt buttons
+    gr.Markdown("### Prompt suggeriti")
+    with gr.Row(elem_classes=["agent-prompts"]):
+        _prompt_btns = []
+        for _p in SUGGESTED_PROMPTS:
+            _btn = gr.Button(
+                _p["label"],
+                variant="secondary",
+                size="sm",
+                interactive=_OLLAMA_AVAILABLE,
+            )
+            _prompt_btns.append((_btn, _p["text"]))
+
+    # File upload + chat
+    with gr.Row():
+        with gr.Column(scale=3):
+            agent_chatbot = gr.Chatbot(
+                label="Agente Documentale",
+                height=480,
+            )
+            agent_input = gr.Textbox(
+                placeholder=(
+                    "Es: Trascrivi il testo e cerca le persone nominate (Invio per inviare)"
+                    if _OLLAMA_AVAILABLE
+                    else "⚠️ Non disponibile — esegui localmente con Ollama + qwen3"
+                ),
+                lines=2,
+                show_label=False,
+                interactive=_OLLAMA_AVAILABLE,
+            )
+            with gr.Row():
+                agent_send_btn = gr.Button(
+                    "Invia", variant="primary", interactive=_OLLAMA_AVAILABLE
+                )
+                agent_stop_btn = gr.Button("⏹ Stop", variant="stop")
+                agent_clear_btn = gr.Button("🗑️ Cancella", variant="secondary")
+
+        with gr.Column(scale=1):
+            agent_files = gr.File(
+                label="File allegati (immagini, PDF)",
+                file_count="multiple",
+                file_types=["image", ".pdf"],
+                interactive=_OLLAMA_AVAILABLE,
+            )
+
+    # Wire prompt buttons: each button fills the input text
+    for _btn, _text in _prompt_btns:
+        _btn.click(fn=lambda t=_text: t, outputs=agent_input)
+
+    def _agent_respond(message, history, files):
+        """Gradio generator: yield (input_clear, updated_history) on each stream event.
+
+        History format: list of [user_msg, bot_msg] tuples (Gradio default).
+        """
+        if not message or not message.strip():
+            yield "", history
+            return
+
+        # Collect file paths from Gradio File component (list of dicts or paths)
+        file_paths = []
+        if files:
+            for f in files:
+                path = f if isinstance(f, str) else (f.get("name") if isinstance(f, dict) else str(f))
+                if path:
+                    file_paths.append(path)
+
+        # Convert Gradio tuple history [[user, bot], ...] to agent dict format
+        agent_history = []
+        for pair in (history or []):
+            if pair[0]:
+                agent_history.append({"role": "user", "content": pair[0]})
+            if pair[1]:
+                agent_history.append({"role": "assistant", "content": pair[1]})
+
+        # Add user turn as a new [user, None] pair
+        updated_history = list(history or []) + [[message, None]]
+
+        for text in agent_stream(message, file_paths, agent_history):
+            updated_history[-1] = [message, text]
+            yield "", updated_history
+
+    _send_event = agent_send_btn.click(
+        fn=_agent_respond,
+        inputs=[agent_input, agent_chatbot, agent_files],
+        outputs=[agent_input, agent_chatbot],
+    )
+    _submit_event = agent_input.submit(
+        fn=_agent_respond,
+        inputs=[agent_input, agent_chatbot, agent_files],
+        outputs=[agent_input, agent_chatbot],
+    )
+    agent_stop_btn.click(fn=None, cancels=[_send_event, _submit_event])
+    agent_clear_btn.click(
+        fn=lambda: ([], "", None),
+        outputs=[agent_chatbot, agent_input, agent_files],
+    )
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Main App
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -763,6 +888,7 @@ demo = gr.TabbedInterface(
     interface_list=[
         htr_tab, sig_verify_tab, sig_detect_tab,
         ner_tab, writer_tab, grapho_tab, pipeline_tab, dating_tab, rag_tab,
+        agent_tab,
     ],
     tab_names=[
         "OCR Manoscritto",
@@ -774,6 +900,7 @@ demo = gr.TabbedInterface(
         "Perizia Forense Automatica",
         "Datazione Documenti",
         "Consulente Forense IA",
+        "🤖 Agente Documentale",
     ],
     title=(
         "GraphoLab — Intelligenza Artificiale in Grafologia Forense"

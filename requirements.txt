@@ -43,3 +43,13 @@ dateparser>=1.1
 pypdf>=3.0          # text extraction from digital PDFs
 pymupdf>=1.23       # render scanned PDF pages as images (for OCR fallback)
 python-docx>=0.8    # read DOCX files
+
+# Agentic framework (Agente Documentale tab)
+langchain>=0.3.0
+langchain-ollama>=0.2.0
+langchain-core>=0.3.0
+
+# Document layout detection — PaddleOCR (Agente Documentale)
+# CPU build: paddlepaddle; GPU build: paddlepaddle-gpu
+paddlepaddle>=2.6.0
+paddleocr>=2.8.0

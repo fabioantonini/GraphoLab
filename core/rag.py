@@ -32,10 +32,12 @@ import requests
 # ──────────────────────────────────────────────────────────────────────────────
 
 OLLAMA_URL = "http://localhost:11434"
-OLLAMA_MODEL = "llama3.2"
+OLLAMA_MODEL = "qwen3-vl:8b"
 
 _embed_model = "nomic-embed-text"  # dedicated embedding model — changing it invalidates cache
 _rag_model = OLLAMA_MODEL     # generation model — selectable via UI
+
+_ENV_FILE = Path(__file__).parent.parent / ".env"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # In-memory state
@@ -162,11 +164,37 @@ def ollama_list_models() -> list[str]:
 
 
 def set_rag_model(model_name: str) -> str:
-    """Set the active Ollama generation model. Returns a status message."""
+    """Set the active Ollama generation model and persist to .env. Returns a status message."""
     global _rag_model
-    if model_name:
-        _rag_model = model_name
+    if not model_name:
+        return f"✅ Modello attivo: **{_rag_model}**"
+    _rag_model = model_name
+    _persist_model_to_env(model_name)
     return f"✅ Modello attivo: **{_rag_model}**"
+
+
+def _persist_model_to_env(model_name: str) -> None:
+    """Write OLLAMA_MODEL=<model_name> into the .env file, preserving all other lines."""
+    try:
+        if _ENV_FILE.exists():
+            lines = _ENV_FILE.read_text(encoding="utf-8").splitlines(keepends=True)
+        else:
+            lines = []
+
+        new_line = f"OLLAMA_MODEL={model_name}\n"
+        for i, line in enumerate(lines):
+            if line.startswith("OLLAMA_MODEL="):
+                lines[i] = new_line
+                _ENV_FILE.write_text("".join(lines), encoding="utf-8")
+                return
+
+        # Key not found — append it
+        if lines and not lines[-1].endswith("\n"):
+            lines.append("\n")
+        lines.append(new_line)
+        _ENV_FILE.write_text("".join(lines), encoding="utf-8")
+    except Exception as e:
+        print(f"[RAG] Warning: could not persist model to .env: {e}")
 
 
 def stream_ollama(prompt: str) -> Generator[str, None, None]:
