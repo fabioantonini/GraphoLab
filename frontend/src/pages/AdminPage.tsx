@@ -159,7 +159,7 @@ export default function AdminPage() {
                   <Input className="h-8 text-sm w-40" value={newName} onChange={(e) => setNewName(e.target.value)} required />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs text-muted-foreground">Password</label>
+                  <label className="text-xs text-muted-foreground">{t("auth.password")}</label>
                   <Input className="h-8 text-sm w-32" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required />
                 </div>
                 <div className="flex flex-col gap-1">

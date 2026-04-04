@@ -90,7 +90,7 @@ function AnalysisCard({ analysis, onDelete }: { analysis: Analysis; onDelete: (i
           {analysis.result_storage_key && imgSrc && (
             <img
               src={imgSrc}
-              alt="Immagine annotata"
+              alt={t("project.image_alt")}
               className="w-full rounded border object-contain max-h-96"
             />
           )}

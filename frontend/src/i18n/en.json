@@ -63,6 +63,7 @@
     "clear_analyses": "Clear analyses",
     "clear_analyses_confirm": "Delete all analyses for this case? This cannot be undone.",
     "delete_analysis": "Delete this artefact",
+    "image_alt": "Annotated image",
     "running": "Running analysis…",
     "done": "Analysis complete",
     "select_reference_doc": "Select reference document",

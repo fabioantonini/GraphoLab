@@ -63,6 +63,7 @@
     "clear_analyses": "Cancella analisi",
     "clear_analyses_confirm": "Eliminare tutte le analisi di questa perizia? L'operazione non è reversibile.",
     "delete_analysis": "Elimina questo artefatto",
+    "image_alt": "Immagine annotata",
     "running": "Analisi in corso…",
     "done": "Analisi completata",
     "select_reference_doc": "Seleziona documento di riferimento",
