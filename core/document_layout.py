@@ -217,10 +217,10 @@ def _image_to_base64(pil_img: Image.Image) -> str:
 
 
 def _get_active_model() -> str:
-    """Read the currently active model from core.rag (set by the user via sidebar)."""
+    """Read the currently active VLM model from core.rag (set by the user via sidebar)."""
     try:
-        from core.rag import _rag_model
-        return _rag_model or "qwen3-vl:8b"
+        from core.rag import _vlm_model
+        return _vlm_model or "qwen3-vl:8b"
     except Exception:
         return "qwen3-vl:8b"
 

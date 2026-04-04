@@ -53,6 +53,19 @@ async def set_model(body: ModelSelect, _: User = Depends(get_current_user)) -> d
     return {"model": body.model, "detail": msg}
 
 
+@router.get("/vlm-model")
+async def get_vlm_model_endpoint(_: User = Depends(get_current_user)) -> dict:
+    from core.rag import _vlm_model
+    return {"vlm_model": _vlm_model}
+
+
+@router.put("/vlm-model")
+async def set_vlm_model_endpoint(body: ModelSelect, _: User = Depends(get_current_user)) -> dict:
+    from core.rag import set_vlm_model
+    msg = set_vlm_model(body.model)
+    return {"vlm_model": body.model, "detail": msg}
+
+
 @router.get("/ocr-model")
 async def get_ocr_model_endpoint(_: User = Depends(get_current_user)) -> dict:
     from core.ocr import get_ocr_model

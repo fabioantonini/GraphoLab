@@ -145,7 +145,8 @@
     "model_offline": "Ollama unavailable",
     "model_saved": "Model updated",
     "refresh": "Refresh model list",
-    "ocr_model_label": "OCR Model"
+    "ocr_model_label": "OCR Model",
+    "vlm_model_label": "VLM Model (vision)"
   },
   "compliance": {
     "title": "ENFSI Compliance",

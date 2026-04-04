@@ -32,12 +32,30 @@ import requests
 # ──────────────────────────────────────────────────────────────────────────────
 
 OLLAMA_URL = "http://localhost:11434"
-OLLAMA_MODEL = "qwen3-vl:8b"
+OLLAMA_MODEL = "qwen3:4b"       # text/reasoning model (agent, RAG, compliance)
+VLM_MODEL   = "qwen3-vl:8b"    # vision-language model (image analysis only)
 
 _embed_model = "nomic-embed-text"  # dedicated embedding model — changing it invalidates cache
-_rag_model = OLLAMA_MODEL     # generation model — selectable via UI
 
 _ENV_FILE = Path(__file__).parent.parent / ".env"
+
+
+def _load_model_from_env(key: str, default: str) -> str:
+    """Read a model name from the .env file, falling back to default."""
+    try:
+        if _ENV_FILE.exists():
+            for line in _ENV_FILE.read_text(encoding="utf-8").splitlines():
+                if line.startswith(f"{key}="):
+                    val = line.split("=", 1)[1].strip()
+                    if val:
+                        return val
+    except Exception:
+        pass
+    return default
+
+
+_rag_model: str = _load_model_from_env("OLLAMA_MODEL", OLLAMA_MODEL)
+_vlm_model: str = _load_model_from_env("VLM_MODEL", VLM_MODEL)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # In-memory state
@@ -195,6 +213,45 @@ def _persist_model_to_env(model_name: str) -> None:
         _ENV_FILE.write_text("".join(lines), encoding="utf-8")
     except Exception as e:
         print(f"[RAG] Warning: could not persist model to .env: {e}")
+
+
+def get_vlm_model() -> str:
+    """Return the currently active VLM (vision-language) model name."""
+    return _vlm_model
+
+
+def set_vlm_model(model_name: str) -> str:
+    """Set the active VLM model and persist to .env. Returns a status message."""
+    global _vlm_model
+    if not model_name:
+        return f"✅ Modello VLM attivo: **{_vlm_model}**"
+    _vlm_model = model_name
+    _persist_vlm_model_to_env(model_name)
+    return f"✅ Modello VLM attivo: **{_vlm_model}**"
+
+
+def _persist_vlm_model_to_env(model_name: str) -> None:
+    """Write VLM_MODEL=<model_name> into the .env file, preserving all other lines."""
+    try:
+        if _ENV_FILE.exists():
+            lines = _ENV_FILE.read_text(encoding="utf-8").splitlines(keepends=True)
+        else:
+            lines = []
+
+        new_line = f"VLM_MODEL={model_name}\n"
+        for i, line in enumerate(lines):
+            if line.startswith("VLM_MODEL="):
+                lines[i] = new_line
+                _ENV_FILE.write_text("".join(lines), encoding="utf-8")
+                return
+
+        # Key not found — append it
+        if lines and not lines[-1].endswith("\n"):
+            lines.append("\n")
+        lines.append(new_line)
+        _ENV_FILE.write_text("".join(lines), encoding="utf-8")
+    except Exception as e:
+        print(f"[RAG] Warning: could not persist VLM model to .env: {e}")
 
 
 def stream_ollama(prompt: str) -> Generator[str, None, None]:

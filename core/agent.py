@@ -27,7 +27,7 @@ from PIL import Image
 # Configuration
 # ──────────────────────────────────────────────────────────────────────────────
 
-AGENT_MODEL = "qwen3-vl:8b"
+AGENT_MODEL = "qwen3:4b"
 
 _ROOT = Path(__file__).parent.parent
 SIGNET_WEIGHTS = _ROOT / "models" / "signet.pth"
@@ -112,37 +112,20 @@ def trascrivi_documento(image_path: str) -> str:
     """Trascrive il testo manoscritto presente in un documento immagine.
 
     Usa questo strumento quando l'utente vuole leggere o estrarre testo scritto a mano.
-    Usa qwen3-vl come modello principale (ottimo per calligrafia italiana/latina);
-    cade su HTR classico solo se il VLM non è disponibile.
+    Il modello OCR usato è quello selezionato dall'utente nella sidebar
+    (easyocr / vlm / paddleocr / trocr). Di default usa EasyOCR (CPU, veloce).
     Restituisce il testo trascritto che può essere passato ad altri strumenti.
 
     Args:
         image_path: Percorso assoluto del file immagine del documento.
     """
     try:
-        from core.document_layout import call_vision_model
-        from PIL import Image as _Image
-        pil_img = _Image.open(image_path).convert("RGB")
-        prompt = (
-            "Sei un esperto paleografo forense. Trascrivi FEDELMENTE tutto il testo "
-            "presente in questa immagine, incluso testo manoscritto, stampato o misto.\n"
-            "- Mantieni la struttura del documento (paragrafi, a capo, elenchi).\n"
-            "- Se una parola è illeggibile scrivi [illeggibile].\n"
-            "- NON aggiungere commenti o spiegazioni: rispondi SOLO con il testo trascritto."
-        )
-        result = call_vision_model(pil_img, prompt)
-        if result.startswith("Errore VLM"):
-            raise RuntimeError(result)
+        from core.ocr import htr_transcribe
+        img = _load_image(image_path)
+        result = htr_transcribe(img)
         return f"Testo trascritto:\n\n{result}"
-    except Exception as vlm_err:
-        # Fallback: HTR classico
-        try:
-            from core.ocr import htr_transcribe
-            img = _load_image(image_path)
-            result = htr_transcribe(img)
-            return f"Testo trascritto (HTR fallback):\n\n{result}"
-        except Exception as e:
-            return f"Errore nella trascrizione: VLM={vlm_err} | HTR={e}"
+    except Exception as e:
+        return f"Errore nella trascrizione: {e}"
 
 
 @tool

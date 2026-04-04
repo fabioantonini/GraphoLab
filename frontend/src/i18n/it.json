@@ -145,7 +145,8 @@
     "model_offline": "Ollama non disponibile",
     "model_saved": "Modello aggiornato",
     "refresh": "Aggiorna lista modelli",
-    "ocr_model_label": "Modello OCR"
+    "ocr_model_label": "Modello OCR",
+    "vlm_model_label": "Modello VLM (visione)"
   },
   "compliance": {
     "title": "Conformità ENFSI",

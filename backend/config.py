@@ -46,7 +46,8 @@ class Settings(BaseSettings):
 
     # ── Ollama ────────────────────────────────────────────────────────────────
     ollama_host: str = "http://localhost:11434"
-    ollama_model: str = "qwen3-vl:8b"
+    ollama_model: str = "qwen3:4b"
+    vlm_model: str = "qwen3-vl:8b"
 
     # ── CORS (comma-separated origins for the React frontend) ─────────────────
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]

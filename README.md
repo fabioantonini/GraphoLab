@@ -59,6 +59,28 @@ GraphoLab ships in two forms:
 - **Role-based access**: admin, examiner, viewer
 - **Multilingual UI**: Italian / English (react-i18next)
 
+### Ollama Model Configuration
+
+GraphoLab separates LLM usage into three independent slots, each configurable from the sidebar at runtime:
+
+| Slot | Default | Used for | GPU impact |
+| ---- | ------- | -------- | --------- |
+| **LLM Model** | `qwen3:4b` | Agent reasoning, RAG chat, ENFSI compliance, pipeline synthesis | low (~2.5 GB VRAM) |
+| **VLM Model** | `qwen3-vl:8b` | OCR=vlm transcription, table/figure analysis | high (~5 GB VRAM) |
+| **OCR Model** | `easyocr` | Handwritten text transcription | none (CPU) |
+
+OCR model options: `easyocr` (CPU, default) · `trocr` (CPU/GPU, no Ollama) · `paddleocr` (CPU, no Ollama) · `vlm` (delegates to VLM Model above).
+
+**Example — "transcribe + NER + dating" with OCR=easyocr:**
+EasyOCR (CPU) → spaCy NER (CPU) → dateparser (CPU) → qwen3:4b reasoning. The VLM is never loaded.
+
+```bash
+# Pull the two recommended models
+ollama pull qwen3:4b       # text/reasoning (~2.5 GB)
+ollama pull qwen3-vl:8b    # vision/image analysis (~5 GB)
+ollama pull nomic-embed-text  # RAG embeddings
+```
+
 ### Quick Start (Docker)
 
 ```bash
@@ -74,8 +96,10 @@ docker compose up
 #   MinIO     → http://localhost:9001       (admin console)
 #   Ollama    → http://localhost:11434
 
-# Pull a model for LLM features (recommended: qwen3:8b for RTX 4070 8GB)
-ollama pull qwen3:8b
+# Pull models
+ollama pull qwen3:4b
+ollama pull qwen3-vl:8b
+ollama pull nomic-embed-text
 ```
 
 ### Quick Start (local development)

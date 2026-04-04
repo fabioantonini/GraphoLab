@@ -26,6 +26,7 @@ export default function Sidebar() {
   const [models, setModels] = useState<string[]>([])
   const [currentModel, setCurrentModel] = useState<string>("")
   const [currentOcrModel, setCurrentOcrModel] = useState<string>("easyocr")
+  const [currentVlmModel, setCurrentVlmModel] = useState<string>("qwen3-vl:8b")
   const [ollamaUp, setOllamaUp] = useState<boolean | null>(null)
   const [refreshing, setRefreshing] = useState(false)
 
@@ -48,6 +49,7 @@ export default function Sidebar() {
     loadModels()
     ragApi.getModel().then(r => setCurrentModel(r.data.model)).catch(() => {})
     ragApi.getOcrModel().then(r => setCurrentOcrModel(r.data.ocr_model)).catch(() => {})
+    ragApi.getVlmModel().then(r => setCurrentVlmModel(r.data.vlm_model)).catch(() => {})
   }, [])
 
   async function handleModelChange(e: React.ChangeEvent<HTMLSelectElement>) {
@@ -60,6 +62,12 @@ export default function Sidebar() {
     const model = e.target.value
     setCurrentOcrModel(model)
     try { await ragApi.setOcrModel(model) } catch { /* no-op */ }
+  }
+
+  async function handleVlmModelChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const model = e.target.value
+    setCurrentVlmModel(model)
+    try { await ragApi.setVlmModel(model) } catch { /* no-op */ }
   }
 
   async function handleLogout() {
@@ -164,6 +172,20 @@ export default function Sidebar() {
             <option key={m} value={m}>{m}</option>
           ))}
         </select>
+        <label className="block text-xs text-muted-foreground mt-2 mb-1">{t("config.vlm_model_label")}</label>
+        {models.length === 0 ? (
+          <p className="text-xs text-muted-foreground">{t("config.model_loading")}</p>
+        ) : (
+          <select
+            value={currentVlmModel}
+            onChange={handleVlmModelChange}
+            className="w-full rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            {models.map(m => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Footer */}

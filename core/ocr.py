@@ -195,10 +195,10 @@ def _vlm_transcribe(image: np.ndarray, ollama_url: str = "http://localhost:11434
     pil_img.save(buf, format="JPEG", quality=90)
     b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
 
-    # Use the globally selected model if set, else hardcoded qwen3-vl:8b
+    # Use the globally selected VLM model if set, else hardcoded qwen3-vl:8b
     try:
-        from core.rag import _rag_model
-        model = _rag_model or "qwen3-vl:8b"
+        from core.rag import _vlm_model
+        model = _vlm_model or "qwen3-vl:8b"
     except Exception:
         model = "qwen3-vl:8b"
 
