@@ -62,6 +62,9 @@ class Project(Base):
     analyses: Mapped[list[Analysis]] = relationship(
         "Analysis", back_populates="project", cascade="all, delete-orphan"
     )
+    agent_chats: Mapped[list[AgentChat]] = relationship(
+        "AgentChat", back_populates="project", cascade="all, delete-orphan"
+    )
 
 
 class Document(Base):
@@ -104,6 +107,50 @@ class Analysis(Base):
         ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
     )
     project: Mapped[Project] = relationship("Project", back_populates="analyses")
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class AgentChat(Base):
+    """A persistent chat session inside an agent project."""
+
+    __tablename__ = "agent_chats"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String(256), nullable=False, default="Nuova chat")
+
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    project: Mapped[Project] = relationship("Project", back_populates="agent_chats")
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    messages: Mapped[list[AgentMessage]] = relationship(
+        "AgentMessage", back_populates="chat", cascade="all, delete-orphan",
+        order_by="AgentMessage.created_at"
+    )
+
+
+class AgentMessage(Base):
+    """A single message in an AgentChat."""
+
+    __tablename__ = "agent_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    chat_id: Mapped[int] = mapped_column(
+        ForeignKey("agent_chats.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    chat: Mapped[AgentChat] = relationship("AgentChat", back_populates="messages")
+
+    role: Mapped[str] = mapped_column(String(16), nullable=False)   # "user" | "assistant"
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    # JSON-encoded list of Document.id attached by the user (user messages only)
+    file_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

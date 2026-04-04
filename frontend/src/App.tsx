@@ -6,6 +6,7 @@ import ProjectDetailPage from "@/pages/ProjectDetailPage"
 import RagPage from "@/pages/RagPage"
 import CompliancePage from "@/pages/CompliancePage"
 import AgentPage from "@/pages/AgentPage"
+import AgentProjectPage from "@/pages/AgentProjectPage"
 import AdminPage from "@/pages/AdminPage"
 import ResetPasswordPage from "@/pages/ResetPasswordPage"
 
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="/rag" element={<RagPage />} />
           <Route path="/compliance" element={<CompliancePage />} />
           <Route path="/agent" element={<AgentPage />} />
+          <Route path="/agent/projects/:projectId" element={<AgentProjectPage />} />
           <Route path="/admin/*" element={<AdminPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/projects" replace />} />

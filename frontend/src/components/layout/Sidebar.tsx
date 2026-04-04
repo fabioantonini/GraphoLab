@@ -1,9 +1,9 @@
-import { NavLink } from "react-router-dom"
+import { NavLink, useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
-import { FolderOpen, MessageSquare, Users, Microscope, LogOut, Globe, ClipboardCheck, RefreshCw, Bot } from "lucide-react"
+import { FolderOpen, MessageSquare, Users, Microscope, LogOut, Globe, ClipboardCheck, RefreshCw, Bot, Plus, ChevronDown, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth"
-import { authApi, ragApi } from "@/lib/api"
+import { authApi, ragApi, agentProjectsApi, type AgentProject } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import i18n from "@/i18n"
 import { useState, useEffect } from "react"
@@ -22,6 +22,13 @@ const adminLinks = [
 export default function Sidebar() {
   const { t } = useTranslation()
   const { user, logout } = useAuthStore()
+  const navigate = useNavigate()
+
+  const [agentProjects, setAgentProjects] = useState<AgentProject[]>([])
+  const [agentExpanded, setAgentExpanded] = useState(true)
+  const [newProjectTitle, setNewProjectTitle] = useState("")
+  const [creatingProject, setCreatingProject] = useState(false)
+  const [showNewProjectInput, setShowNewProjectInput] = useState(false)
 
   const [models, setModels] = useState<string[]>([])
   const [currentModel, setCurrentModel] = useState<string>("")
@@ -50,7 +57,24 @@ export default function Sidebar() {
     ragApi.getModel().then(r => setCurrentModel(r.data.model)).catch(() => {})
     ragApi.getOcrModel().then(r => setCurrentOcrModel(r.data.ocr_model)).catch(() => {})
     ragApi.getVlmModel().then(r => setCurrentVlmModel(r.data.vlm_model)).catch(() => {})
+    agentProjectsApi.listProjects().then(r => setAgentProjects(r.data)).catch(() => {})
   }, [])
+
+  async function handleCreateProject() {
+    if (!newProjectTitle.trim()) return
+    setCreatingProject(true)
+    try {
+      const { data } = await agentProjectsApi.createProject(newProjectTitle.trim())
+      setAgentProjects(prev => [data, ...prev])
+      setNewProjectTitle("")
+      setShowNewProjectInput(false)
+      navigate(`/agent/projects/${data.id}`)
+    } catch {
+      // no-op
+    } finally {
+      setCreatingProject(false)
+    }
+  }
 
   async function handleModelChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const model = e.target.value
@@ -88,11 +112,12 @@ export default function Sidebar() {
       </div>
 
       {/* Main nav */}
-      <nav className="flex-1 space-y-0.5">
+      <nav className="flex-1 space-y-0.5 overflow-y-auto">
         {links.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}
+            end={to === "/agent"}
             className={({ isActive }) =>
               cn(
                 "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
@@ -106,6 +131,60 @@ export default function Sidebar() {
             {t(label)}
           </NavLink>
         ))}
+
+        {/* Agent projects sub-section */}
+        <div className="pt-1">
+          <button
+            onClick={() => setAgentExpanded(v => !v)}
+            className="flex items-center gap-1.5 w-full px-3 py-1 text-xs font-semibold text-muted-foreground tracking-wide hover:text-foreground transition-colors"
+          >
+            {agentExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            {t("nav.agent_projects")}
+            <button
+              onClick={e => { e.stopPropagation(); setShowNewProjectInput(v => !v) }}
+              className="ml-auto p-0.5 rounded hover:bg-muted"
+              title={t("agent.new_project")}
+            >
+              <Plus className="h-3 w-3" />
+            </button>
+          </button>
+
+          {showNewProjectInput && (
+            <div className="px-2 py-1 flex gap-1">
+              <input
+                autoFocus
+                value={newProjectTitle}
+                onChange={e => setNewProjectTitle(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") handleCreateProject(); if (e.key === "Escape") setShowNewProjectInput(false) }}
+                placeholder={t("agent.project_name_placeholder")}
+                className="flex-1 rounded border bg-background px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+              <Button size="icon" className="h-6 w-6 shrink-0" disabled={creatingProject} onClick={handleCreateProject}>
+                <Plus className="h-3 w-3" />
+              </Button>
+            </div>
+          )}
+
+          {agentExpanded && agentProjects.map(p => (
+            <NavLink
+              key={p.id}
+              to={`/agent/projects/${p.id}`}
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-2 pl-6 pr-3 py-1.5 text-xs rounded-md transition-colors",
+                  isActive ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                )
+              }
+            >
+              <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{p.title}</span>
+            </NavLink>
+          ))}
+
+          {agentExpanded && agentProjects.length === 0 && (
+            <p className="pl-6 pr-3 py-1 text-xs text-muted-foreground">{t("agent.no_projects")}</p>
+          )}
+        </div>
 
         {user?.role === "admin" && (
           <>

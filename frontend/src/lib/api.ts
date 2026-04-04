@@ -214,6 +214,48 @@ export const complianceApi = {
   }) => api.post("/compliance/pdf", data, { responseType: "blob" }),
 }
 
+// Agent Projects
+export interface AgentProject {
+  id: number
+  title: string
+  owner_id: number
+  chat_count: number
+}
+
+export interface AgentChat {
+  id: number
+  project_id: number
+  title: string
+  created_at: string
+}
+
+export interface AgentMessage {
+  id: number
+  role: "user" | "assistant"
+  content: string
+  file_ids: number[]
+  created_at: string
+}
+
+export interface AgentChatDetail extends AgentChat {
+  messages: AgentMessage[]
+}
+
+export const agentProjectsApi = {
+  listProjects: () => api.get<AgentProject[]>("/agent/projects/"),
+  createProject: (title: string) => api.post<AgentProject>("/agent/projects/", { title }),
+  deleteProject: (projectId: number) => api.delete(`/agent/projects/${projectId}`),
+
+  listChats: (projectId: number) => api.get<AgentChat[]>(`/agent/projects/${projectId}/chats`),
+  createChat: (projectId: number) => api.post<AgentChat>(`/agent/projects/${projectId}/chats`),
+  getChat: (chatId: number) => api.get<AgentChatDetail>(`/agent/chats/${chatId}`),
+  deleteChat: (chatId: number) => api.delete(`/agent/chats/${chatId}`),
+
+  listDocuments: (projectId: number) => api.get<Document[]>(`/agent/projects/${projectId}/documents`),
+  deleteDocument: (projectId: number, docId: number) =>
+    api.delete(`/agent/projects/${projectId}/documents/${docId}`),
+}
+
 // RAG
 export const ragApi = {
   status: () => api.get<{ ollama_reachable: boolean; models: string[] }>("/rag/status"),
