@@ -79,6 +79,9 @@
     "offline": "Ollama non disponibile",
     "offline_hint": "Ollama non raggiungibile. Avvia Ollama per usare l'agente.",
     "attach_files": "Allega file (immagini, PDF)",
+    "actions_menu": "Azioni",
+    "new_conversation": "Nuova conversazione",
+    "analyze_document": "Analizza documento",
     "empty_hint": "Carica un documento e descrivi cosa vuoi analizzare. Puoi usare i prompt suggeriti sopra.",
     "input_hint": "Invio per inviare · Shift+Invio per andare a capo · Allega immagini e PDF con 📎",
     "tools_used": "Strumenti utilizzati"

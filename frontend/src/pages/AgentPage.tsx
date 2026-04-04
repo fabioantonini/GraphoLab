@@ -1,8 +1,17 @@
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Send, Paperclip, X, WifiOff, Loader2, ChevronDown, ChevronRight, Bot, Square } from "lucide-react"
+import { Send, Paperclip, X, WifiOff, Loader2, ChevronDown, ChevronRight, Bot, Square, Plus, Trash2, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu"
+import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth"
 import ReactMarkdown from "react-markdown"
 import { api } from "@/lib/api"
@@ -41,6 +50,7 @@ export default function AgentPage() {
   const [input, setInput] = useState("")
   const [streaming, setStreaming] = useState(false)
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
+  const [selectedPrompts, setSelectedPrompts] = useState<Prompt[]>([])
   const [expandedTools, setExpandedTools] = useState<Record<number, boolean>>({})
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -89,9 +99,24 @@ export default function AgentPage() {
     setAttachedFiles((prev) => prev.filter((_, i) => i !== idx))
   }
 
+  function handleClearChat() {
+    setMessages([])
+    setInput("")
+    setAttachedFiles([])
+    setSelectedPrompts([])
+  }
+
   function applyPrompt(text: string) {
     setInput(text)
     textareaRef.current?.focus()
+  }
+
+  function togglePrompt(p: Prompt) {
+    setSelectedPrompts((prev) =>
+      prev.some((x) => x.label === p.label)
+        ? prev.filter((x) => x.label !== p.label)
+        : [...prev, p]
+    )
   }
 
   function handleStop() {
@@ -100,13 +125,19 @@ export default function AgentPage() {
 
   async function handleSend(e?: React.FormEvent) {
     e?.preventDefault()
-    if (!input.trim() || streaming) return
+    if ((!input.trim() && selectedPrompts.length === 0) || streaming) return
 
-    const userMsg = input.trim()
+    const base = selectedPrompts.map((p) => p.text).join("\n\n")
+    const extra = input.trim()
+    const fullMsg = base && extra ? `${base}\n\n${extra}` : base || extra
+    const userLabel = selectedPrompts.length > 0
+      ? selectedPrompts.map((p) => p.label).join(" · ") + (extra ? ` — ${extra}` : "")
+      : extra
     const fileNames = attachedFiles.map((f) => f.name)
     setInput("")
     setAttachedFiles([])
-    setMessages((m) => [...m, { role: "user", text: userMsg, files: fileNames }])
+    setSelectedPrompts([])
+    setMessages((m) => [...m, { role: "user", text: userLabel, files: fileNames }])
     setStreaming(true)
 
     const history = messages.map((m) => ({ role: m.role, content: m.text }))
@@ -118,7 +149,7 @@ export default function AgentPage() {
     try {
       const token = useAuthStore.getState().accessToken
       const fd = new FormData()
-      fd.append("message", userMsg)
+      fd.append("message", fullMsg)
       fd.append("history", JSON.stringify(history))
       for (const f of attachedFiles) fd.append("files", f)
 
@@ -263,15 +294,33 @@ export default function AgentPage() {
                   <span className="animate-pulse text-muted-foreground">…</span>
                 ) : (() => {
                   const { main, toolLog } = splitMessage(msg.text)
+                  const isLiveStreaming = streaming && i === messages.length - 1 && !toolLog
                   return (
                     <>
-                      <div className="prose prose-sm max-w-none dark:prose-invert">
-                        <ReactMarkdown
-                          components={{
-                            img: ({ src, alt }) => src ? <AuthImage src={src} alt={alt ?? ""} /> : null,
-                          }}
-                        >{main}</ReactMarkdown>
-                      </div>
+                      {/* Live activity log: visible only while streaming, before final answer arrives */}
+                      {isLiveStreaming && (
+                        <div className="rounded border border-muted bg-muted/40 px-2 py-1.5 space-y-0.5 font-mono text-xs text-muted-foreground">
+                          {msg.text
+                            .split("\n")
+                            .filter((l) => l.trim())
+                            .map((l, li) => (
+                              <div key={li} className="flex items-start gap-1.5">
+                                <span className="mt-px shrink-0 animate-pulse">›</span>
+                                <span>{l.replace(/\*|`/g, "").trim()}</span>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                      {/* Final answer — shown once streaming ends or main has content */}
+                      {!isLiveStreaming && (
+                        <div className="prose prose-sm max-w-none dark:prose-invert">
+                          <ReactMarkdown
+                            components={{
+                              img: ({ src, alt }) => src ? <AuthImage src={src} alt={alt ?? ""} /> : null,
+                            }}
+                          >{main}</ReactMarkdown>
+                        </div>
+                      )}
                       {toolLog && (
                         <div className="border-t pt-2 mt-2">
                           <button
@@ -304,9 +353,21 @@ export default function AgentPage() {
 
       {/* Input area */}
       <form onSubmit={handleSend} className="space-y-2">
-        {/* Attached files */}
-        {attachedFiles.length > 0 && (
+        {/* Selected prompt chips + attached files */}
+        {(selectedPrompts.length > 0 || attachedFiles.length > 0) && (
           <div className="flex flex-wrap gap-1.5">
+            {selectedPrompts.map((p) => (
+              <Badge key={p.label} variant="default" className="gap-1 text-xs pr-1">
+                {p.label}
+                <button
+                  type="button"
+                  onClick={() => togglePrompt(p)}
+                  className="ml-0.5 rounded-full hover:bg-primary-foreground/20 p-0.5"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ))}
             {attachedFiles.map((f, i) => (
               <Badge key={i} variant="secondary" className="gap-1 text-xs pr-1">
                 <Paperclip className="h-3 w-3" />
@@ -324,18 +385,44 @@ export default function AgentPage() {
         )}
 
         <div className="flex gap-2 items-end">
-          {/* File attachment */}
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="shrink-0 h-9 w-9"
-            onClick={() => fileRef.current?.click()}
-            disabled={streaming || !online}
-            title={t("agent.attach_files")}
-          >
-            <Paperclip className="h-4 w-4" />
-          </Button>
+          {/* Actions menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="shrink-0 h-9 w-9"
+                disabled={streaming || !online}
+                title={t("agent.actions_menu")}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="start" className="w-56">
+              <DropdownMenuItem onSelect={() => fileRef.current?.click()}>
+                <Paperclip className="h-4 w-4 mr-2" />
+                {t("agent.attach_files")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={handleClearChat}>
+                <Trash2 className="h-4 w-4 mr-2" />
+                {t("agent.new_conversation")}
+              </DropdownMenuItem>
+              {attachedFiles.length > 0 && prompts.length > 0 && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>{t("agent.analyze_document")}</DropdownMenuLabel>
+                  {prompts.map((p) => (
+                    <DropdownMenuItem key={p.label} onSelect={() => togglePrompt(p)}>
+                      <Check className={cn("h-4 w-4 mr-2", selectedPrompts.some((x) => x.label === p.label) ? "opacity-100" : "opacity-0")} />
+                      {p.label}
+                    </DropdownMenuItem>
+                  ))}
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <input
             ref={fileRef}
             type="file"
@@ -374,7 +461,7 @@ export default function AgentPage() {
               type="submit"
               size="icon"
               className="shrink-0 h-9 w-9"
-              disabled={!online || !input.trim()}
+              disabled={!online || (!input.trim() && selectedPrompts.length === 0)}
             >
               <Send className="h-4 w-4" />
             </Button>
