@@ -152,16 +152,29 @@ def estrai_entita(testo: str) -> str:
 def rileva_firma(image_path: str) -> str:
     """Rileva le firme presenti in un documento immagine tramite object detection.
 
-    Usa questo strumento per trovare la posizione delle firme in un documento.
+    Usa questo strumento per trovare e salvare la firma estratta da un documento.
+    Salva il ritaglio della firma come file PNG nella cartella temporanea e restituisce
+    il percorso reale del file salvato, che l'utente può usare direttamente.
     Se vuoi poi verificare l'autenticità di una firma, usa `verifica_firma`.
 
     Args:
         image_path: Percorso assoluto del file immagine del documento.
     """
     try:
-        from core.signature import sig_detect
+        from core.signature import detect_and_crop
         img = _load_image(image_path)
-        _annotated, summary = sig_detect(img, conf_threshold=0.3)
+        _annotated, crop, summary = detect_and_crop(img, conf_threshold=0.3)
+
+        if crop is not None:
+            _gl_tmp = Path(tempfile.gettempdir()) / "gl"
+            _gl_tmp.mkdir(exist_ok=True)
+            crop_path = _gl_tmp / "firma_estratta.png"
+            Image.fromarray(crop.astype("uint8")).save(str(crop_path))
+            return (
+                f"Risultato rilevamento firme:\n\n{summary}\n\n"
+                f"Firma estratta salvata in: `{crop_path}`\n\n"
+                f"![Firma estratta](/api/agent/temp-image/firma_estratta.png)"
+            )
         return f"Risultato rilevamento firme:\n\n{summary}"
     except Exception as e:
         return f"Errore nel rilevamento firma: {e}"
@@ -508,6 +521,10 @@ def agent_stream(
 
     accumulated = ""
     tool_log: list[str] = []
+    image_blocks: list[str] = []  # image markdown extracted from tool results
+
+    import re as _re
+    _img_md_re = _re.compile(r'!\[.*?\]\(/api/agent/temp-image/[^\)]+\)')
 
     try:
         for chunk in agent.stream(
@@ -532,6 +549,9 @@ def agent_stream(
                     elif content:
                         # Final answer from the agent
                         accumulated = content
+                        # Append any images extracted from tool results
+                        if image_blocks:
+                            accumulated += "\n\n" + "\n\n".join(image_blocks)
                         if tool_log:
                             details = (
                                 "\n\n<details><summary>__TOOL_LOG__</summary>\n"
@@ -546,6 +566,10 @@ def agent_stream(
             elif "tools" in chunk:
                 for msg in chunk["tools"]["messages"]:
                     content = getattr(msg, "content", "") or ""
+                    # Extract image markdown from tool result before truncating
+                    for img_md in _img_md_re.findall(content):
+                        if img_md not in image_blocks:
+                            image_blocks.append(img_md)
                     short = content[:120] + ("…" if len(content) > 120 else "")
                     if tool_log:
                         tool_log[-1] = tool_log[-1].rstrip("…*") + " ✅*"

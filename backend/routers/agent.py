@@ -45,6 +45,28 @@ async def agent_status(_: User = Depends(get_current_user)) -> dict:
     }
 
 
+@router.get("/temp-image/{filename}")
+async def serve_temp_image(
+    filename: str,
+    _: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """Serve an image file saved in %TEMP%/gl/ by agent tools (e.g. extracted signatures)."""
+    import mimetypes
+    from fastapi import HTTPException
+    from fastapi.responses import FileResponse
+
+    # Security: only serve files from the gl/ temp subdirectory
+    gl_dir = Path(tempfile.gettempdir()) / "gl"
+    file_path = (gl_dir / filename).resolve()
+    if not str(file_path).startswith(str(gl_dir.resolve())):
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    mime, _ = mimetypes.guess_type(str(file_path))
+    return FileResponse(str(file_path), media_type=mime or "application/octet-stream")
+
+
 @router.get("/prompts")
 async def get_prompts(_: User = Depends(get_current_user)) -> dict:
     """Return the list of pre-formatted prompt templates."""

@@ -5,6 +5,21 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useAuthStore } from "@/store/auth"
 import ReactMarkdown from "react-markdown"
+import { api } from "@/lib/api"
+
+/** Renders an authenticated image (attaches JWT via axios, converts to blob URL). */
+function AuthImage({ src, alt }: { src: string; alt: string }) {
+  const [blobSrc, setBlobSrc] = useState<string | null>(null)
+  useEffect(() => {
+    const path = src.startsWith("/api/") ? src.slice(4) : src
+    api.get<Blob>(path, { responseType: "blob" })
+      .then(({ data }) => setBlobSrc(URL.createObjectURL(data)))
+      .catch(() => setBlobSrc(null))
+    return () => { if (blobSrc) URL.revokeObjectURL(blobSrc) }
+  }, [src])
+  if (!blobSrc) return null
+  return <img src={blobSrc} alt={alt} className="max-w-full rounded border my-2 max-h-64 object-contain" />
+}
 
 interface Message {
   role: "user" | "assistant"
@@ -116,11 +131,14 @@ export default function AgentPage() {
 
       const reader = res.body?.getReader()
       const decoder = new TextDecoder()
+      let lineBuf = ""
       while (reader) {
         const { done, value } = await reader.read()
         if (done) break
-        const chunk = decoder.decode(value)
-        for (const line of chunk.split("\n")) {
+        lineBuf += decoder.decode(value, { stream: true })
+        const lines = lineBuf.split("\n")
+        lineBuf = lines.pop() ?? ""  // keep incomplete last line in buffer
+        for (const line of lines) {
           if (!line.startsWith("data: ")) continue
           let text = ""
           try { text = JSON.parse(line.slice(6)) } catch { text = line.slice(6) }
@@ -248,7 +266,11 @@ export default function AgentPage() {
                   return (
                     <>
                       <div className="prose prose-sm max-w-none dark:prose-invert">
-                        <ReactMarkdown>{main}</ReactMarkdown>
+                        <ReactMarkdown
+                          components={{
+                            img: ({ src, alt }) => src ? <AuthImage src={src} alt={alt ?? ""} /> : null,
+                          }}
+                        >{main}</ReactMarkdown>
                       </div>
                       {toolLog && (
                         <div className="border-t pt-2 mt-2">
