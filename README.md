@@ -38,6 +38,7 @@ GraphoLab ships in two forms:
 | Full Forensic Pipeline | All engines in sequence | Ollama LLM synthesis |
 | RAG / AI Consultant | Retrieval-Augmented Generation | Ollama + nomic-embed-text |
 | **ENFSI Compliance Checker** | LLM structured analysis | Ollama (qwen3:8b recommended) |
+| **Agente Documentale** | LangChain ReAct agent + tools | Ollama + LangChain + PaddleOCR |
 
 ---
 
@@ -51,6 +52,8 @@ GraphoLab ships in two forms:
 - **PDF report generation**: forensic report with images and formatted tables
 - **RAG chatbot**: upload PDF/DOCX to build a knowledge base, query with local LLM
 - **ENFSI Compliance Checker**: upload a perizia PDF → LLM analysis against 20 ENFSI BPM-FHX-01 Ed.03 requirements → structured report with ✅/⚠️/❌ verdicts, suggestions, PDF export
+- **Agente Documentale**: LangChain ReAct agent with document tools (OCR, NER, graphology, dating) — upload files, run tool-augmented multi-turn conversations, stop mid-stream
+- **OCR model selector**: switch between EasyOCR, TrOCR, PaddleOCR, VLM from the sidebar at runtime
 - **Immutable audit log**: append-only forensic chain of custody
 - **JWT authentication**: login, refresh, password reset
 - **Role-based access**: admin, examiner, viewer
@@ -102,14 +105,15 @@ grapholab/
 │   ├── dating.py            # Document dating
 │   ├── pipeline.py          # Full forensic pipeline
 │   ├── rag.py               # RAG + Ollama integration
-│   └── compliance.py        # ENFSI compliance checker
+│   ├── compliance.py        # ENFSI compliance checker
+│   └── agent.py             # LangChain ReAct agent + document tools
 ├── backend/                 # FastAPI professional app
-│   ├── routers/             # auth, users, projects, analysis, rag, compliance, audit
+│   ├── routers/             # auth, users, projects, analysis, rag, compliance, agent, audit
 │   ├── models/              # SQLAlchemy models
 │   └── storage/             # MinIO client
 ├── frontend/                # React + Tailwind CSS + shadcn/ui SPA
 │   └── src/
-│       ├── pages/           # ProjectsPage, ProjectPage, RagPage, CompliancePage, AdminPage
+│       ├── pages/           # ProjectsPage, ProjectPage, RagPage, CompliancePage, AgentPage, AdminPage
 │       └── components/
 ├── app/
 │   └── grapholab_demo.py    # Gradio demo (preserved, imports from core/)
@@ -133,6 +137,7 @@ Main endpoint groups:
 | `/analysis` | Run AI engines, download PDF report |
 | `/rag` | RAG chatbot, document indexing, model selection |
 | `/compliance` | ENFSI compliance check (SSE stream + PDF export) |
+| `/agent` | LangChain document agent (SSE stream, file attachment, stop) |
 | `/audit` | Immutable activity log |
 
 ---
@@ -191,6 +196,7 @@ jupyter lab notebooks/
 - [Ollama](https://ollama.com) for LLM features (pipeline synthesis, RAG, compliance checker)
   - Recommended model: `qwen3:8b` (fits in 8GB VRAM, RTX 4070 Laptop GPU)
 - Docker + nvidia-container-toolkit for containerized GPU inference
+- [LangChain](https://python.langchain.com) + `langchain-ollama` for the Document Agent
 
 ---
 
@@ -205,6 +211,7 @@ jupyter lab notebooks/
 | Embeddings (RAG) | [nomic-embed-text](https://ollama.com/library/nomic-embed-text) via Ollama |
 | LLM inference | [Ollama](https://ollama.com) — local, no data sent online |
 | ENFSI standard | BPM-FHX-01 Ed.03 — Best Practice Manual for Forensic Examination of Handwriting |
+| Document OCR (agent) | [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) — layout + text detection |
 
 ---
 
