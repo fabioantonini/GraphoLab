@@ -113,11 +113,10 @@ export default function Sidebar() {
 
       {/* Main nav */}
       <nav className="flex-1 space-y-0.5 overflow-y-auto">
-        {links.map(({ to, label, icon: Icon }) => (
+        {links.filter(l => l.to !== "/agent").slice(0, links.findIndex(l => l.to === "/agent")).map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}
-            end={to === "/agent"}
             className={({ isActive }) =>
               cn(
                 "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
@@ -132,7 +131,24 @@ export default function Sidebar() {
           </NavLink>
         ))}
 
-        {/* Agent projects sub-section */}
+        {/* Agente Documentale link */}
+        <NavLink
+          to="/agent"
+          end
+          className={({ isActive }) =>
+            cn(
+              "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+              isActive
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            )
+          }
+        >
+          <Bot className="h-4 w-4" />
+          {t("nav.agent")}
+        </NavLink>
+
+        {/* Agent projects sub-section — directly under Agente Documentale */}
         <div className="pt-1">
           <button
             onClick={() => setAgentExpanded(v => !v)}
@@ -185,6 +201,25 @@ export default function Sidebar() {
             <p className="pl-6 pr-3 py-1 text-xs text-muted-foreground">{t("agent.no_projects")}</p>
           )}
         </div>
+
+        {/* Remaining main nav links (RAG, Compliance, …) */}
+        {links.filter(l => l.to !== "/agent").slice(links.findIndex(l => l.to === "/agent")).map(({ to, label, icon: Icon }) => (
+          <NavLink
+            key={to}
+            to={to}
+            className={({ isActive }) =>
+              cn(
+                "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                isActive
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              )
+            }
+          >
+            <Icon className="h-4 w-4" />
+            {t(label)}
+          </NavLink>
+        ))}
 
         {user?.role === "admin" && (
           <>

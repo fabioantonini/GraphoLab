@@ -6,7 +6,7 @@
   "nav": {
     "projects": "Perizie",
     "agent": "Agente Documentale",
-    "agent_projects": "Progetti Agente",
+    "agent_projects": "Progetti",
     "rag": "Consulente IA",
     "compliance": "Conformità ENFSI",
     "admin": "Amministrazione",
@@ -85,7 +85,7 @@
     "analyze_document": "Analizza documento",
     "project": "Progetto",
     "new_project": "Nuovo progetto",
-    "new_chat": "+ Nuova chat",
+    "new_chat": "Nuova chat",
     "no_projects": "Nessun progetto",
     "no_chats": "Nessuna chat",
     "no_documents": "Nessun documento",

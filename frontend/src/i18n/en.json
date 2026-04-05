@@ -6,7 +6,7 @@
   "nav": {
     "projects": "Cases",
     "agent": "Document Agent",
-    "agent_projects": "Agent Projects",
+    "agent_projects": "Projects",
     "rag": "AI Consultant",
     "compliance": "ENFSI Compliance",
     "admin": "Administration",
@@ -85,7 +85,7 @@
     "analyze_document": "Analyze document",
     "project": "Project",
     "new_project": "New project",
-    "new_chat": "+ New chat",
+    "new_chat": "New chat",
     "no_projects": "No projects yet",
     "no_chats": "No chats yet",
     "no_documents": "No documents yet",
