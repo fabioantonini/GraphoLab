@@ -75,6 +75,8 @@ SUGGESTED_PROMPTS = [
          "Analizza questo testamento: estrai il testo, identifica le persone nominate, "
          "rileva la firma e confrontala con la firma di riferimento allegata"
      )},
+    {"label": "Conformità ENFSI",
+     "text": "Verifica la conformità di questa perizia agli standard ENFSI BPM"},
 ]
 
 AGENT_TOOLS_NAMES = [
@@ -90,6 +92,7 @@ AGENT_TOOLS_NAMES = [
     "analizza_tabella",
     "analizza_figura",
     "consulta_knowledge_base",
+    "verifica_conformita_enfsi",
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -406,6 +409,87 @@ def consulta_knowledge_base(domanda: str) -> str:
         return f"Errore nella consultazione della knowledge base: {e}"
 
 
+@tool
+def verifica_conformita_enfsi(pdf_path: str) -> str:
+    """Verifica la conformità di una perizia grafologica agli standard ENFSI BPM.
+
+    Analizza il documento PDF e valuta i 20 requisiti del Best Practice Manual
+    ENFSI-BPM-FHX-01 Ed.03 sez. 13.2, producendo un rapporto dettagliato con
+    verdetti (CONFORME / PARZIALE / MANCANTE) per ciascun requisito.
+    Usa questo strumento quando l'utente vuole verificare se una perizia rispetta
+    gli standard ENFSI, o quando chiede 'conformità ENFSI' / 'check ENFSI'.
+
+    Args:
+        pdf_path: Percorso assoluto del file PDF della perizia da analizzare.
+    """
+    import json as _json
+    import re as _re
+
+    try:
+        from core.compliance import (
+            compliance_check_stream,
+            extract_perizia_text,
+            _parse_verdicts,
+            _ENFSI_CHECKLIST,
+        )
+
+        perizia_text = extract_perizia_text(Path(pdf_path))
+        if not perizia_text.strip():
+            return "❌ Impossibile estrarre il testo dal PDF. Verifica che il file non sia corrotto o protetto da password."
+
+        # Accumulate the full streamed output (generator yields accumulated text)
+        full_text = ""
+        for chunk in compliance_check_stream(perizia_text):
+            full_text = chunk
+
+        if not full_text:
+            return "❌ Nessun risultato prodotto dall'analisi di conformità."
+
+        # Build structured data for frontend rendering
+        verdicts = _parse_verdicts(full_text)
+        blocks = []
+        for i, (name, _) in enumerate(_ENFSI_CHECKLIST):
+            req_num = i + 1
+            bp = _re.compile(
+                rf"REQ[-\s]?{req_num:02d}[^\n]*\n([\s\S]+?)(?=REQ[-\s]?\d{{1,2}}\.|\Z)",
+                _re.IGNORECASE,
+            )
+            m = bp.search(full_text)
+            block_text = m.group(1) if m else ""
+            motiv_m = _re.search(
+                r"Motivazione:\s*([\s\S]+?)(?=\s*💡|(?:\n\s*){3}|$)", block_text
+            )
+            sugg_m = _re.search(r"💡\s*Suggerimento:\s*([\s\S]+?)$", block_text.strip())
+            suggerimento = sugg_m.group(1).strip() if sugg_m else None
+            if suggerimento and _re.match(r"^nessuno\.?$", suggerimento, _re.IGNORECASE):
+                suggerimento = None
+            blocks.append({
+                "num": req_num,
+                "name": name,
+                "verdict": verdicts.get(req_num),
+                "motivazione": motiv_m.group(1).strip() if motiv_m else "",
+                "suggerimento": suggerimento,
+            })
+
+        conformi = sum(1 for b in blocks if b["verdict"] == "✅")
+        parziali  = sum(1 for b in blocks if b["verdict"] == "⚠️")
+        mancanti  = sum(1 for b in blocks if b["verdict"] == "❌")
+        jm = _re.search(r"\*\*Giudizio complessivo:\s*([^*]+)\*\*", full_text)
+        structured = {
+            "filename": Path(pdf_path).name,
+            "blocks": blocks,
+            "conformi": conformi,
+            "parziali": parziali,
+            "mancanti": mancanti,
+            "judgment": jm.group(1).strip() if jm else "",
+        }
+        marker = f"\n<!-- COMPLIANCE_REPORT: {_json.dumps(structured, ensure_ascii=False)} -->"
+        return full_text + marker
+
+    except Exception as e:
+        return f"Errore nella verifica di conformità ENFSI: {e}"
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Tool list
 # ──────────────────────────────────────────────────────────────────────────────
@@ -423,6 +507,7 @@ _ALL_TOOLS = [
     analizza_tabella,
     analizza_figura,
     consulta_knowledge_base,
+    verifica_conformita_enfsi,
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -542,10 +627,14 @@ def agent_stream(
 
     agent = create_forensic_agent(model, project_context=project_context)
 
+    # Yield immediately so the frontend exits the "..." placeholder state
+    yield "⏳ *Elaborazione in corso…*"
+
     accumulated = ""
     tool_log: list[str] = []
     image_blocks: list[str] = []  # image markdown extracted from tool results
     table_blocks: list[str] = []  # markdown tables extracted from tool results
+    compliance_marker: str = ""   # COMPLIANCE_REPORT marker extracted from tool results
 
     import re as _re
     import logging as _logging
@@ -630,6 +719,8 @@ def agent_stream(
                             accumulated += "\n\n" + "\n\n".join(table_blocks)
                         if image_blocks:
                             accumulated += "\n\n" + "\n\n".join(image_blocks)
+                        if compliance_marker:
+                            accumulated += compliance_marker
                         if tool_log:
                             details = (
                                 "\n\n<details><summary>__TOOL_LOG__</summary>\n"
@@ -644,6 +735,11 @@ def agent_stream(
             elif "tools" in chunk:
                 for msg in chunk["tools"]["messages"]:
                     content = getattr(msg, "content", "") or ""
+                    # Extract compliance report marker (verifica_conformita_enfsi tool)
+                    if not compliance_marker:
+                        cm = _re.search(r'<!-- COMPLIANCE_REPORT: \{[\s\S]+?\} -->', content)
+                        if cm:
+                            compliance_marker = "\n" + cm.group(0)
                     # Extract image markdown from tool result before truncating
                     for img_md in _img_md_re.findall(content):
                         if img_md not in image_blocks:

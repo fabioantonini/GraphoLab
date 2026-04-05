@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth"
 import ReactMarkdown from "react-markdown"
 import { api } from "@/lib/api"
+import { parseComplianceMarker, StructuredReport, ComplianceDownloadButton } from "@/components/ComplianceReport"
 
 /** Renders an authenticated image (attaches JWT via axios, converts to blob URL). */
 function AuthImage({ src, alt }: { src: string; alt: string }) {
@@ -295,6 +296,7 @@ export default function AgentPage() {
                 ) : (() => {
                   const { main, toolLog } = splitMessage(msg.text)
                   const isLiveStreaming = streaming && i === messages.length - 1 && !toolLog
+                  const { mainText, complianceData } = parseComplianceMarker(main)
                   return (
                     <>
                       {/* Live activity log: visible only while streaming, before final answer arrives */}
@@ -318,7 +320,14 @@ export default function AgentPage() {
                             components={{
                               img: ({ src, alt }) => src ? <AuthImage src={src} alt={alt ?? ""} /> : null,
                             }}
-                          >{main}</ReactMarkdown>
+                          >{mainText}</ReactMarkdown>
+                        </div>
+                      )}
+                      {/* Structured ENFSI compliance report (appears after streaming ends) */}
+                      {!isLiveStreaming && complianceData && (
+                        <div className="mt-3 space-y-3">
+                          <StructuredReport report={complianceData} />
+                          <ComplianceDownloadButton parsed={complianceData} filename={complianceData.filename} />
                         </div>
                       )}
                       {toolLog && (

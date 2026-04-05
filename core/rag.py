@@ -380,8 +380,15 @@ def rag_doc_choices() -> list[str]:
 # Document loading and indexing
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _extract_pdf_text(path: Path) -> str:
-    """Extract text from a PDF, falling back to EasyOCR for scanned pages."""
+def _extract_pdf_text(path: Path, ocr_fallback: bool = True) -> str:
+    """Extract text from a PDF, optionally falling back to EasyOCR for scanned pages.
+
+    Args:
+        path:         Path to the PDF file.
+        ocr_fallback: If True (default), pages with fewer than 50 extracted characters
+                      are re-processed with EasyOCR. Set to False for structured PDFs
+                      where OCR is unnecessary and wastes memory.
+    """
     full_text = []
     try:
         import pypdf
@@ -394,7 +401,7 @@ def _extract_pdf_text(path: Path) -> str:
             page_text = page.extract_text() or ""
             if len(page_text.strip()) >= 50:
                 full_text.append(page_text)
-            else:
+            elif ocr_fallback:
                 try:
                     import fitz
                     import numpy as np
@@ -415,6 +422,7 @@ def _extract_pdf_text(path: Path) -> str:
                     print(f"[RAG] pymupdf not installed — cannot OCR scanned page {page_num+1}")
                 except Exception as e:
                     print(f"[RAG] OCR error on page {page_num+1} of {path.name}: {e}")
+            # else: ocr_fallback=False — skip pages with little text silently
     except Exception as e:
         print(f"[RAG] Error reading PDF {path.name}: {e}")
     return "\n".join(full_text)

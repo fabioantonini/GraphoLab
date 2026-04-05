@@ -16,6 +16,7 @@ import { useAuthStore } from "@/store/auth"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { api, agentProjectsApi, type AgentChat, type AgentMessage, type Document } from "@/lib/api"
+import { parseComplianceMarker, StructuredReport, ComplianceDownloadButton } from "@/components/ComplianceReport"
 
 // ── AuthImage ────────────────────────────────────────────────────────────────
 
@@ -481,6 +482,7 @@ export default function AgentProjectPage() {
                   ) : (() => {
                     const { main, toolLog } = splitMessage(msg.text)
                     const isLiveStreaming = streaming && i === messages.length - 1 && !toolLog
+                    const { mainText, complianceData } = parseComplianceMarker(main)
                     return (
                       <>
                         {isLiveStreaming && (
@@ -496,8 +498,15 @@ export default function AgentProjectPage() {
                         {!isLiveStreaming && (
                           <div className="prose prose-sm max-w-none dark:prose-invert">
                             <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: ({ src, alt }) => src ? <AuthImage src={src} alt={alt ?? ""} /> : null }}>
-                              {main}
+                              {mainText}
                             </ReactMarkdown>
+                          </div>
+                        )}
+                        {/* Structured ENFSI compliance report (appears after streaming ends) */}
+                        {!isLiveStreaming && complianceData && (
+                          <div className="mt-3 space-y-3">
+                            <StructuredReport report={complianceData} />
+                            <ComplianceDownloadButton parsed={complianceData} filename={complianceData.filename} />
                           </div>
                         )}
                         {toolLog && (

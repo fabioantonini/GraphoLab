@@ -131,9 +131,18 @@ _ENFSI_CHECKLIST = [
 # ──────────────────────────────────────────────────────────────────────────────
 
 def extract_perizia_text(path: Path) -> str:
-    """Extract text from a PDF perizia using pypdf (+ EasyOCR fallback for scanned pages)."""
-    from core.rag import _extract_pdf_text  # reuse existing implementation
-    return _extract_pdf_text(path)
+    """Extract text from a PDF perizia.
+
+    First attempts a fast pypdf-only extraction (no OCR). If the result is too
+    sparse (< 200 chars total, i.e. the document is likely scanned), retries
+    with EasyOCR fallback enabled.
+    """
+    from core.rag import _extract_pdf_text
+    text = _extract_pdf_text(path, ocr_fallback=False)
+    if len(text.strip()) < 200:
+        # Sparse result → likely a scanned document, retry with OCR
+        text = _extract_pdf_text(path, ocr_fallback=True)
+    return text
 
 
 # ──────────────────────────────────────────────────────────────────────────────
