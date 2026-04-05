@@ -274,7 +274,12 @@ def analisi_layout(image_path: str) -> str:
         from core.document_layout import detect_layout
         result = detect_layout(image_path)
         if "error" in result:
-            return f"Errore layout detection: {result['error']}"
+            err = result['error']
+            # Return a plain technical error; do NOT speculate on the cause
+            return (
+                f"Errore tecnico nel modello di layout detection: {err}\n"
+                "Nota: questo è un errore del backend PaddlePaddle, non dipende dal tipo di file."
+            )
         regions = result.get("regions", [])
         if not regions:
             return "Nessuna regione strutturata rilevata nel documento."
@@ -494,10 +499,12 @@ def agent_stream(
         model = get_active_model()
     from langchain_core.messages import HumanMessage, AIMessage
 
-    # Copy uploaded files to a short, predictable temp path so the LLM
-    # does not mangle long Windows AppData paths when constructing tool args.
-    _gl_tmp = Path(tempfile.gettempdir()) / "gl"
-    _gl_tmp.mkdir(exist_ok=True)
+    # Copy uploaded files into a unique per-session subfolder so concurrent
+    # requests never overwrite each other's files (e.g. /tmp/gl/<uuid>/f0.jpg).
+    import uuid as _uuid
+    _session_id = _uuid.uuid4().hex[:12]
+    _gl_tmp = Path(tempfile.gettempdir()) / "gl" / _session_id
+    _gl_tmp.mkdir(parents=True, exist_ok=True)
     short_paths: list[str] = []
     for i, p in enumerate(file_paths):
         ext = Path(p).suffix or ".png"
@@ -584,3 +591,7 @@ def agent_stream(
 
     except Exception as e:
         yield f"{accumulated}\n\n❌ Errore dell'agente: {e}"
+    finally:
+        # Clean up the per-session temp directory after streaming completes
+        if _gl_tmp.exists():
+            shutil.rmtree(_gl_tmp, ignore_errors=True)

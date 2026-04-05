@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,12 @@ from typing import Any
 import numpy as np
 import requests
 from PIL import Image
+
+# Disable PaddlePaddle PIR (Program IR) introduced in Paddle 3.x — it triggers
+# "ConvertPirAttribute2RuntimeAttribute not supported" errors for layout models
+# on Windows. Setting this before any paddle import ensures CPU-only stable path.
+os.environ.setdefault("FLAGS_enable_pir_api", "0")
+os.environ.setdefault("FLAGS_use_mkldnn", "0")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Lazy model state
@@ -35,27 +42,38 @@ def _get_layout():
     """Lazy-load layout detection engine.
 
     Tries the new PaddleOCR 2.8+ LayoutDetection API first;
-    falls back to the stable PPStructure API if not available.
+    falls back to the stable PPStructure API if not available or broken.
     """
     global _layout_engine
     if _layout_engine is None:
         with _lock:
             if _layout_engine is None:
-                try:
-                    # PaddleOCR 2.8+ / PaddleX 3.x API
-                    from paddleocr import LayoutDetection  # type: ignore
-                    _layout_engine = ("new", LayoutDetection())
-                except (ImportError, AttributeError):
-                    # Fallback: stable PPStructure API (all PaddleOCR versions)
-                    from paddleocr import PPStructure  # type: ignore
-                    engine = PPStructure(
-                        table=False,
-                        ocr=False,
-                        show_log=False,
-                        layout=True,
-                    )
-                    _layout_engine = ("old", engine)
+                _layout_engine = _load_layout_engine()
     return _layout_engine
+
+
+def _load_layout_engine():
+    """Try new API first, fall back to stable PPStructure."""
+    try:
+        # PaddleOCR 2.8+ / PaddleX 3.x API
+        from paddleocr import LayoutDetection  # type: ignore
+        engine = LayoutDetection()
+        # Quick smoke-test: if initialisation triggers a PIR error immediately,
+        # we catch it here and fall through to PPStructure.
+        return ("new", engine)
+    except Exception:
+        pass
+    # Fallback: stable PPStructure API (all PaddleOCR versions)
+    from paddleocr import PPStructure  # type: ignore
+    engine = PPStructure(
+        table=False,
+        ocr=False,
+        show_log=False,
+        layout=True,
+        use_gpu=False,
+        enable_mkldnn=False,
+    )
+    return ("old", engine)
 
 
 def _get_ocr():
@@ -149,6 +167,7 @@ def detect_layout(image_path: str) -> dict:
           - bbox: list  [x1, y1, x2, y2] pixel coordinates
           - score: float confidence score
     """
+    global _layout_engine
     api_version, layout = _get_layout()
     try:
         if api_version == "new":
@@ -162,7 +181,24 @@ def detect_layout(image_path: str) -> dict:
             raw = layout(img)
             return _parse_old_api(raw)
     except Exception as e:
-        return {"regions": [], "error": str(e)}
+        err_str = str(e)
+        # If the new API fails at runtime (PIR / backend errors), force-reset to
+        # PPStructure and retry once.
+        if api_version == "new" and _layout_engine is not None:
+            with _lock:
+                _layout_engine = None  # will re-init as old API next call
+            try:
+                _layout_engine = _load_layout_engine()  # reload as PPStructure
+                api_version2, layout2 = _layout_engine
+                import cv2  # type: ignore
+                img = cv2.imread(image_path)
+                if img is None:
+                    return {"regions": [], "error": f"Cannot read image: {image_path}"}
+                raw2 = layout2(img)
+                return _parse_old_api(raw2)
+            except Exception as e2:
+                return {"regions": [], "error": str(e2)}
+        return {"regions": [], "error": err_str}
 
 
 def extract_ordered_text(image_path: str) -> str:
