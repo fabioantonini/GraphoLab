@@ -42,6 +42,8 @@ FORENSIC_SYSTEM_PROMPT = (
     "nel formato [file: /percorso/al/file]. Usali come argomenti degli strumenti.\n"
     "Se la richiesta riguarda sia la trascrizione che altre analisi (NER, date, ecc.), "
     "trascrivi prima il testo e poi usa il testo risultante come input per gli altri strumenti.\n"
+    "Quando uno strumento restituisce una tabella Markdown (righe con | ... |), "
+    "includila SEMPRE integralmente nella risposta senza riscriverla come testo.\n"
     "Al termine di ogni risposta, fornisci un breve riepilogo delle analisi effettuate."
 )
 
@@ -543,9 +545,55 @@ def agent_stream(
     accumulated = ""
     tool_log: list[str] = []
     image_blocks: list[str] = []  # image markdown extracted from tool results
+    table_blocks: list[str] = []  # markdown tables extracted from tool results
 
     import re as _re
+    import logging as _logging
     _img_md_re = _re.compile(r'!\[.*?\]\(/api/agent/images/[^\)]+\)')
+
+    def _extract_tables(text: str) -> list[str]:
+        """Extract markdown tables from tool result text.
+
+        Handles both properly-newlined tables and collapsed single-line tables
+        (LangGraph sometimes strips newlines from tool result strings).
+        """
+        tables: list[str] = []
+
+        # ── Case 1: multi-line table (normal case) ────────────────────────────
+        current: list[str] = []
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("|") and stripped.endswith("|"):
+                current.append(stripped)
+            else:
+                if len(current) >= 3:
+                    tables.append("\n".join(current))
+                current = []
+        if len(current) >= 3:
+            tables.append("\n".join(current))
+
+        if tables:
+            return tables
+
+        # ── Case 2: collapsed single-line table ───────────────────────────────
+        # Detect a line with many pipes and a separator chunk like |---|
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.count("|") >= 6 and "|--" in stripped:
+                # Split on " | " boundary keeping the outer pipes
+                # e.g. "| A | B | C | |---|---|---| | x | y | z |"
+                # Reconstruct by splitting at separator pattern
+                parts = _re.split(r'(?=\|[-:| ]+\|)', stripped)
+                rows: list[str] = []
+                for part in parts:
+                    part = part.strip()
+                    if part.startswith("|") and part.endswith("|"):
+                        rows.append(part)
+                if len(rows) >= 3:
+                    tables.append("\n".join(rows))
+                    break
+
+        return tables
 
     try:
         for chunk in agent.stream(
@@ -570,7 +618,16 @@ def agent_stream(
                     elif content:
                         # Final answer from the agent
                         accumulated = content
-                        # Append any images extracted from tool results
+                        # If we extracted clean tables from tool results, strip
+                        # any mangled pipe-rows the LLM may have written inline
+                        # (qwen3 collapses table newlines into a single line)
+                        if table_blocks:
+                            clean_lines = [
+                                ln for ln in accumulated.splitlines()
+                                if ln.count("|") < 4  # keep narrative, drop pipe-heavy lines
+                            ]
+                            accumulated = "\n".join(clean_lines).strip()
+                            accumulated += "\n\n" + "\n\n".join(table_blocks)
                         if image_blocks:
                             accumulated += "\n\n" + "\n\n".join(image_blocks)
                         if tool_log:
@@ -591,6 +648,12 @@ def agent_stream(
                     for img_md in _img_md_re.findall(content):
                         if img_md not in image_blocks:
                             image_blocks.append(img_md)
+                    # Extract markdown tables from tool result so they are
+                    # appended verbatim to the final response (LLM tends to
+                    # collapse table rows onto a single line when rewriting)
+                    for tbl in _extract_tables(content):
+                        if tbl not in table_blocks:
+                            table_blocks.append(tbl)
                     short = content[:120] + ("…" if len(content) > 120 else "")
                     if tool_log:
                         tool_log[-1] = tool_log[-1].rstrip("…*") + " ✅*"

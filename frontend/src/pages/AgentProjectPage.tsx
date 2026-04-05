@@ -14,6 +14,7 @@ import {
 import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth"
 import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import { api, agentProjectsApi, type AgentChat, type AgentMessage, type Document } from "@/lib/api"
 
 // ── AuthImage ────────────────────────────────────────────────────────────────
@@ -494,7 +495,7 @@ export default function AgentProjectPage() {
                         )}
                         {!isLiveStreaming && (
                           <div className="prose prose-sm max-w-none dark:prose-invert">
-                            <ReactMarkdown components={{ img: ({ src, alt }) => src ? <AuthImage src={src} alt={alt ?? ""} /> : null }}>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: ({ src, alt }) => src ? <AuthImage src={src} alt={alt ?? ""} /> : null }}>
                               {main}
                             </ReactMarkdown>
                           </div>

@@ -469,7 +469,12 @@ async def chat(
         )
         all_docs = doc_result.scalars().all()
         if all_docs:
-            ctx_lines.append("Documenti disponibili nel progetto:")
+            ctx_lines.append(
+                "Documenti caricati nel progetto (solo a scopo informativo — "
+                "i percorsi reali dei file ti vengono forniti nel messaggio utente "
+                "nel formato [file: /percorso/assoluto]. "
+                "NON usare il solo nome del file come percorso: usa SEMPRE il percorso [file: ...] iniettato nel messaggio):"
+            )
             for d in all_docs:
                 ctx_lines.append(f"  - {d.filename} (id={d.id})")
         # Previous chats summary (titles only — keep context short)
