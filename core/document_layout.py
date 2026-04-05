@@ -53,17 +53,11 @@ def _get_layout():
 
 
 def _load_layout_engine():
-    """Try new API first, fall back to stable PPStructure."""
-    try:
-        # PaddleOCR 2.8+ / PaddleX 3.x API
-        from paddleocr import LayoutDetection  # type: ignore
-        engine = LayoutDetection()
-        # Quick smoke-test: if initialisation triggers a PIR error immediately,
-        # we catch it here and fall through to PPStructure.
-        return ("new", engine)
-    except Exception:
-        pass
-    # Fallback: stable PPStructure API (all PaddleOCR versions)
+    """Use the stable PPStructure API directly.
+
+    LayoutDetection (PaddleOCR 2.8+ / PaddleX 3.x) triggers PIR backend errors
+    on Windows with PaddlePaddle 3.x and is skipped entirely.
+    """
     from paddleocr import PPStructure  # type: ignore
     engine = PPStructure(
         table=False,
@@ -181,24 +175,7 @@ def detect_layout(image_path: str) -> dict:
             raw = layout(img)
             return _parse_old_api(raw)
     except Exception as e:
-        err_str = str(e)
-        # If the new API fails at runtime (PIR / backend errors), force-reset to
-        # PPStructure and retry once.
-        if api_version == "new" and _layout_engine is not None:
-            with _lock:
-                _layout_engine = None  # will re-init as old API next call
-            try:
-                _layout_engine = _load_layout_engine()  # reload as PPStructure
-                api_version2, layout2 = _layout_engine
-                import cv2  # type: ignore
-                img = cv2.imread(image_path)
-                if img is None:
-                    return {"regions": [], "error": f"Cannot read image: {image_path}"}
-                raw2 = layout2(img)
-                return _parse_old_api(raw2)
-            except Exception as e2:
-                return {"regions": [], "error": str(e2)}
-        return {"regions": [], "error": err_str}
+        return {"regions": [], "error": str(e)}
 
 
 def extract_ordered_text(image_path: str) -> str:

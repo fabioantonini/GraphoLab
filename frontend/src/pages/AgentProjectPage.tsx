@@ -298,6 +298,10 @@ export default function AgentProjectPage() {
         signal: controller.signal,
       })
 
+      // Refresh documents immediately after the request is accepted — the backend
+      // saves uploaded files before starting to stream, so they are already in DB.
+      agentProjectsApi.listDocuments(pid).then(r => setDocuments(r.data)).catch(() => {})
+
       const reader = res.body?.getReader()
       const decoder = new TextDecoder()
       let lineBuf = ""

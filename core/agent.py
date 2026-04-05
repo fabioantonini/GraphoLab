@@ -166,14 +166,16 @@ def rileva_firma(image_path: str) -> str:
         _annotated, crop, summary = detect_and_crop(img, conf_threshold=0.3)
 
         if crop is not None:
-            _gl_tmp = Path(tempfile.gettempdir()) / "gl"
-            _gl_tmp.mkdir(exist_ok=True)
-            crop_path = _gl_tmp / "firma_estratta.png"
+            import uuid as _uuid
+            _img_dir = _ROOT / "data" / "uploads" / "agent" / "images"
+            _img_dir.mkdir(parents=True, exist_ok=True)
+            img_name = f"firma_{_uuid.uuid4().hex[:12]}.png"
+            crop_path = _img_dir / img_name
             Image.fromarray(crop.astype("uint8")).save(str(crop_path))
             return (
                 f"Risultato rilevamento firme:\n\n{summary}\n\n"
                 f"Firma estratta salvata in: `{crop_path}`\n\n"
-                f"![Firma estratta](/api/agent/temp-image/firma_estratta.png)"
+                f"![Firma estratta](/api/agent/images/{img_name})"
             )
         return f"Risultato rilevamento firme:\n\n{summary}"
     except Exception as e:
@@ -501,14 +503,20 @@ def agent_stream(
 
     # Copy uploaded files into a unique per-session subfolder so concurrent
     # requests never overwrite each other's files (e.g. /tmp/gl/<uuid>/f0.jpg).
+    # Keep the original filename so the LLM knows what each file is.
     import uuid as _uuid
     _session_id = _uuid.uuid4().hex[:12]
     _gl_tmp = Path(tempfile.gettempdir()) / "gl" / _session_id
     _gl_tmp.mkdir(parents=True, exist_ok=True)
     short_paths: list[str] = []
-    for i, p in enumerate(file_paths):
-        ext = Path(p).suffix or ".png"
-        dest = _gl_tmp / f"f{i}{ext}"
+    for p in file_paths:
+        orig_name = Path(p).name
+        dest = _gl_tmp / orig_name
+        # Avoid collisions if two files share the same name
+        if dest.exists():
+            stem = Path(orig_name).stem
+            ext = Path(orig_name).suffix
+            dest = _gl_tmp / f"{stem}_{_uuid.uuid4().hex[:6]}{ext}"
         shutil.copy2(p, dest)
         short_paths.append(str(dest))
 
@@ -537,7 +545,7 @@ def agent_stream(
     image_blocks: list[str] = []  # image markdown extracted from tool results
 
     import re as _re
-    _img_md_re = _re.compile(r'!\[.*?\]\(/api/agent/temp-image/[^\)]+\)')
+    _img_md_re = _re.compile(r'!\[.*?\]\(/api/agent/images/[^\)]+\)')
 
     try:
         for chunk in agent.stream(

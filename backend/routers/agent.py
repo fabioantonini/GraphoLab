@@ -170,20 +170,34 @@ async def agent_status(_: User = Depends(get_current_user)) -> dict:
 
 
 @router.get("/temp-image/{filename}")
-async def serve_temp_image(
+async def serve_temp_image_legacy(
     filename: str,
     _: User = Depends(get_current_user),
 ) -> StreamingResponse:
-    """Serve an image file saved in %TEMP%/gl/ by agent tools."""
+    """Legacy endpoint — session temp images no longer exist after restart.
+    Returns 410 Gone with a long cache header so browsers stop retrying."""
+    from fastapi.responses import Response
+    return Response(
+        status_code=410,
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@router.get("/images/{filename}")
+async def serve_agent_image(
+    filename: str,
+    _: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """Serve a persistent agent-generated image (e.g. extracted signatures)."""
     import mimetypes
     from fastapi.responses import FileResponse
 
-    gl_dir = Path(tempfile.gettempdir()) / "gl"
-    file_path = (gl_dir / filename).resolve()
-    if not str(file_path).startswith(str(gl_dir.resolve())):
+    img_dir = (Path("data") / "uploads" / "agent" / "images").resolve()
+    file_path = (img_dir / filename).resolve()
+    if not str(file_path).startswith(str(img_dir)):
         raise HTTPException(status_code=403, detail="Access denied")
     if not file_path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
+        raise HTTPException(status_code=404, detail="Image not found")
 
     mime, _ = mimetypes.guess_type(str(file_path))
     return FileResponse(str(file_path), media_type=mime or "application/octet-stream")

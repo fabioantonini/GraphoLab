@@ -51,4 +51,9 @@ async def log_event(
         db.add(entry)
         await db.flush()
     except Exception:
-        pass  # audit must never break the main flow
+        # Rollback so the session is not left in PendingRollbackError state —
+        # without this, any subsequent ORM operation on the same session fails.
+        try:
+            await db.rollback()
+        except Exception:
+            pass
