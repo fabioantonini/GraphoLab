@@ -356,9 +356,11 @@ async def delete_project_document(
     doc = result.scalar_one_or_none()
     if doc is None:
         raise HTTPException(status_code=404, detail="Documento non trovato.")
+    storage_key = doc.storage_key
+    filename = doc.filename
     await log_event(db, current_user, AuditAction.document_delete,
-                    resource_type="document", resource_id=doc_id, detail=doc.filename)
-    await delete_object(doc.storage_key)
+                    resource_type="document", resource_id=doc_id, detail=filename)
+    await delete_object(storage_key)
     await db.delete(doc)
 
 

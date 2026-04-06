@@ -451,7 +451,7 @@ def verifica_conformita_enfsi(pdf_path: str) -> str:
         for i, (name, _) in enumerate(_ENFSI_CHECKLIST):
             req_num = i + 1
             bp = _re.compile(
-                rf"REQ[-\s]?{req_num:02d}[^\n]*\n([\s\S]+?)(?=REQ[-\s]?\d{{1,2}}\.|\Z)",
+                rf"REQ[-\s]?{req_num:02d}[^\n]*\n([\s\S]+?)(?=REQ[-\s]?\d{{1,2}}\.|\n---|\Z)",
                 _re.IGNORECASE,
             )
             m = bp.search(full_text)
@@ -627,14 +627,12 @@ def agent_stream(
 
     agent = create_forensic_agent(model, project_context=project_context)
 
-    # Yield immediately so the frontend exits the "..." placeholder state
-    yield "⏳ *Elaborazione in corso…*"
-
     accumulated = ""
     tool_log: list[str] = []
     image_blocks: list[str] = []  # image markdown extracted from tool results
     table_blocks: list[str] = []  # markdown tables extracted from tool results
     compliance_marker: str = ""   # COMPLIANCE_REPORT marker extracted from tool results
+    compliance_emitted: bool = False  # True once the compliance final response is yielded
 
     import re as _re
     import logging as _logging
@@ -704,7 +702,7 @@ def agent_stream(
                             entry = f"\n\n🔧 *`{tool_name}({tool_args})`…*"
                             tool_log.append(entry)
                         yield accumulated + "".join(tool_log)
-                    elif content:
+                    elif content and not compliance_emitted:
                         # Final answer from the agent
                         accumulated = content
                         # If we extracted clean tables from tool results, strip
@@ -737,9 +735,13 @@ def agent_stream(
                     content = getattr(msg, "content", "") or ""
                     # Extract compliance report marker (verifica_conformita_enfsi tool)
                     if not compliance_marker:
-                        cm = _re.search(r'<!-- COMPLIANCE_REPORT: \{[\s\S]+?\} -->', content)
-                        if cm:
-                            compliance_marker = "\n" + cm.group(0)
+                        _prefix = "<!-- COMPLIANCE_REPORT: "
+                        _suffix = " -->"
+                        _ps = content.find(_prefix)
+                        if _ps != -1:
+                            _pe = content.rfind(_suffix)
+                            if _pe > _ps:
+                                compliance_marker = "\n" + content[_ps:_pe + len(_suffix)]
                     # Extract image markdown from tool result before truncating
                     for img_md in _img_md_re.findall(content):
                         if img_md not in image_blocks:
@@ -750,14 +752,35 @@ def agent_stream(
                     for tbl in _extract_tables(content):
                         if tbl not in table_blocks:
                             table_blocks.append(tbl)
-                    short = content[:120] + ("…" if len(content) > 120 else "")
                     if tool_log:
                         tool_log[-1] = tool_log[-1].rstrip("…*") + " ✅*"
-                    tool_log.append(f"\n> *{short}*")
-                    yield accumulated + "".join(tool_log)
+                    # If compliance marker found, emit final response immediately
+                    # without waiting for the LLM to synthesise the tool output
+                    if compliance_marker and not compliance_emitted:
+                        compliance_emitted = True
+                        details = (
+                            "\n\n<details><summary>__TOOL_LOG__</summary>\n"
+                            + "".join(tool_log)
+                            + "\n</details>"
+                        )
+                        yield accumulated + compliance_marker + details
+                    else:
+                        short = content[:120] + ("…" if len(content) > 120 else "")
+                        tool_log.append(f"\n> *{short}*")
+                        yield accumulated + "".join(tool_log)
 
     except Exception as e:
         yield f"{accumulated}\n\n❌ Errore dell'agente: {e}"
+    else:
+        # Fallback: if compliance marker was never emitted (shouldn't happen
+        # with the tools-node immediate emit, but just in case)
+        if compliance_marker and not compliance_emitted:
+            details = (
+                "\n\n<details><summary>__TOOL_LOG__</summary>\n"
+                + "".join(tool_log)
+                + "\n</details>"
+            ) if tool_log else ""
+            yield accumulated + compliance_marker + details
     finally:
         # Clean up the per-session temp directory after streaming completes
         if _gl_tmp.exists():
