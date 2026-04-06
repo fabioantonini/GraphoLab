@@ -309,8 +309,8 @@ def compliance_check_stream(perizia_text: str) -> Generator[str, None, None]:
             "stream": True,
             "keep_alive": "10m",
             "options": {
-                "num_ctx": 16384,  # fits system prompt + 24k perizia + full 20-block output
-                "temperature": 0.1,
+                "num_ctx": 32768,  # system prompt + perizia + 20-block output
+                "temperature": 0,
                 "repeat_penalty": 1.1,
             },
         },
