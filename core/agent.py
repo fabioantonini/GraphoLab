@@ -44,7 +44,11 @@ FORENSIC_SYSTEM_PROMPT = (
     "trascrivi prima il testo e poi usa il testo risultante come input per gli altri strumenti.\n"
     "Quando uno strumento restituisce una tabella Markdown (righe con | ... |), "
     "includila SEMPRE integralmente nella risposta senza riscriverla come testo.\n"
-    "Al termine di ogni risposta, fornisci un breve riepilogo delle analisi effettuate."
+    "Al termine di ogni risposta, fornisci un breve riepilogo delle analisi effettuate.\n"
+    "IMPORTANTE: quando l'utente chiede la conformità ENFSI, la verifica ENFSI BPM, "
+    "o usa il prompt 'Conformità ENFSI', devi SEMPRE chiamare il tool "
+    "`verifica_conformita_enfsi` passando il percorso del PDF allegato. "
+    "Non rispondere mai a queste richieste senza aver prima chiamato il tool."
 )
 
 SUGGESTED_PROMPTS = [
@@ -624,6 +628,41 @@ def agent_stream(
         elif role == "assistant":
             messages.append(AIMessage(content=content))
     messages.append(HumanMessage(content=full_message))
+
+    # ── Fast path: compliance request with a PDF ─────────────────────────────
+    # qwen3 is unreliable at tool-calling when the result is very long.
+    # Detect compliance requests and call the tool directly, bypassing the LLM
+    # tool-call decision entirely.
+    _COMPLIANCE_KEYWORDS = ("conformità enfsi", "conformita enfsi", "verifica enfsi",
+                            "enfsi bpm", "check enfsi")
+    _is_compliance = any(kw in message.lower() for kw in _COMPLIANCE_KEYWORDS)
+    _pdf_paths = [p for p in short_paths if p.lower().endswith(".pdf")]
+    if _is_compliance and _pdf_paths:
+        yield "🔧 *`verifica_conformita_enfsi(…)`…*"
+        result = verifica_conformita_enfsi.invoke({"pdf_path": _pdf_paths[0]})
+        _prefix = "<!-- COMPLIANCE_REPORT: "
+        _suffix = " -->"
+        _ps = result.find(_prefix)
+        if _ps != -1:
+            _pe = result.rfind(_suffix)
+            if _pe > _ps:
+                _marker = "\n" + result[_ps:_pe + len(_suffix)]
+                _tool_log = "\n\n🔧 *`verifica_conformita_enfsi({...})`* ✅"
+                details = (
+                    "\n\n<details><summary>__TOOL_LOG__</summary>\n"
+                    + _tool_log
+                    + "\n</details>"
+                )
+                yield _marker + details
+                if _gl_tmp.exists():
+                    shutil.rmtree(_gl_tmp, ignore_errors=True)
+                return
+        # If marker not found (error), fall through to normal agent
+        yield result
+        if _gl_tmp.exists():
+            shutil.rmtree(_gl_tmp, ignore_errors=True)
+        return
+    # ─────────────────────────────────────────────────────────────────────────
 
     agent = create_forensic_agent(model, project_context=project_context)
 
