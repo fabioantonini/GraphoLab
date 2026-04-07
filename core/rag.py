@@ -40,7 +40,7 @@ _embed_model = "nomic-embed-text"  # dedicated embedding model — changing it i
 _ENV_FILE = Path(__file__).parent.parent / ".env"
 
 
-def _load_model_from_env(key: str, default: str) -> str:
+def _load_model_from_env(key: str, default: str) -> str:  # noqa: D401
     """Read a model name from the .env file, falling back to default."""
     try:
         if _ENV_FILE.exists():
@@ -56,6 +56,7 @@ def _load_model_from_env(key: str, default: str) -> str:
 
 _rag_model: str = _load_model_from_env("OLLAMA_MODEL", OLLAMA_MODEL)
 _vlm_model: str = _load_model_from_env("VLM_MODEL", VLM_MODEL)
+_embed_model = _load_model_from_env("OPENAI_EMBED_MODEL", _embed_model)  # may be an OpenAI embed model
 
 # ──────────────────────────────────────────────────────────────────────────────
 # In-memory state
@@ -254,6 +255,82 @@ def _persist_vlm_model_to_env(model_name: str) -> None:
         print(f"[RAG] Warning: could not persist VLM model to .env: {e}")
 
 
+def get_embed_model() -> str:
+    """Return the currently active embedding model name."""
+    return _embed_model
+
+
+def set_embed_model(model_name: str) -> str:
+    """
+    Set the active embedding model.
+
+    If the provider changes (Ollama ↔ OpenAI) the embedding dimensions change
+    (768 vs 1536/3072), so all cached .npz files are deleted and the in-memory
+    index is reset to synthetic-only chunks (they will be re-embedded on next startup).
+    Returns a status message.
+    """
+    global _embed_model, _rag_chunks, _rag_ready
+    if not model_name:
+        return f"✅ Modello embedding attivo: **{_embed_model}**"
+
+    from core.providers import is_openai_model
+    old_is_openai = is_openai_model(_embed_model)
+    new_is_openai = is_openai_model(model_name)
+
+    _embed_model = model_name
+    env_key = "OPENAI_EMBED_MODEL" if new_is_openai else "EMBED_MODEL"
+    _persist_env_key(env_key, model_name)
+
+    if old_is_openai != new_is_openai:
+        # Provider changed — dimensions differ, cache is invalid
+        from backend.config import settings
+        cache_dir: Path = settings.rag_cache_dir
+        deleted = 0
+        if cache_dir.exists():
+            for f in cache_dir.glob("*.npz"):
+                try:
+                    f.unlink()
+                    deleted += 1
+                except Exception:
+                    pass
+        # Reset to synthetic-only (embeddings will be regenerated)
+        with _rag_lock:
+            synthetic_sources = {s for s, _ in _RAG_SYNTHETIC_DOCS}
+            _rag_chunks = [c for c in _rag_chunks if c["source"] in synthetic_sources]
+            for c in _rag_chunks:
+                c["emb"] = None  # force re-embedding with new model
+            _rag_ready = False
+        msg = (
+            f"✅ Modello embedding: **{_embed_model}**\n"
+            f"⚠️ Cache invalidata ({deleted} file eliminati) — "
+            "ri-carica i documenti per re-indicizzarli."
+        )
+        return msg
+
+    return f"✅ Modello embedding attivo: **{_embed_model}**"
+
+
+def _persist_env_key(env_key: str, value: str) -> None:
+    """Update or append *env_key*=*value* in the .env file."""
+    try:
+        if _ENV_FILE.exists():
+            lines = _ENV_FILE.read_text(encoding="utf-8").splitlines(keepends=True)
+        else:
+            lines = []
+        new_line = f"{env_key}={value}\n"
+        for i, line in enumerate(lines):
+            if line.startswith(f"{env_key}="):
+                lines[i] = new_line
+                _ENV_FILE.write_text("".join(lines), encoding="utf-8")
+                return
+        if lines and not lines[-1].endswith("\n"):
+            lines.append("\n")
+        lines.append(new_line)
+        _ENV_FILE.write_text("".join(lines), encoding="utf-8")
+    except Exception as e:
+        print(f"[RAG] Warning: could not persist {env_key} to .env: {e}")
+
+
 def stream_ollama(prompt: str) -> Generator[str, None, None]:
     """Yield response tokens from Ollama one at a time (streaming)."""
     with requests.post(
@@ -303,6 +380,59 @@ def _ollama_embed_batch(texts: list[str]) -> list[np.ndarray | None]:
     except Exception:
         pass
     return [_ollama_embed(t) for t in texts]
+
+
+# ── Provider-aware embedding wrappers ─────────────────────────────────────────
+
+def _embed(text: str) -> np.ndarray | None:
+    """Embed *text* using the active provider (OpenAI or Ollama)."""
+    from core.providers import is_openai_model
+    if is_openai_model(_embed_model):
+        try:
+            from core.providers import get_openai_client
+            client = get_openai_client()
+            resp = client.embeddings.create(model=_embed_model, input=text)
+            return np.array(resp.data[0].embedding, dtype=np.float32)
+        except Exception as e:
+            print(f"[RAG] OpenAI embed error: {e}")
+            return None
+    return _ollama_embed(text)
+
+
+def _embed_batch(texts: list[str]) -> list[np.ndarray | None]:
+    """Embed a list of texts using the active provider (OpenAI or Ollama)."""
+    from core.providers import is_openai_model
+    if is_openai_model(_embed_model):
+        try:
+            from core.providers import get_openai_client
+            client = get_openai_client()
+            resp = client.embeddings.create(model=_embed_model, input=texts)
+            items = sorted(resp.data, key=lambda x: x.index)
+            return [np.array(d.embedding, dtype=np.float32) for d in items]
+        except Exception as e:
+            print(f"[RAG] OpenAI embed_batch error: {e}")
+            return [_embed(t) for t in texts]
+    return _ollama_embed_batch(texts)
+
+
+def stream_llm(prompt: str) -> Generator[str, None, None]:
+    """Yield response tokens using the active LLM provider (OpenAI or Ollama)."""
+    from core.providers import is_openai_model
+    if is_openai_model(_rag_model):
+        from core.providers import get_openai_client
+        client = get_openai_client()
+        stream = client.chat.completions.create(
+            model=_rag_model,
+            messages=[{"role": "user", "content": prompt}],
+            stream=True,
+            temperature=0,
+        )
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content or ""
+            if delta:
+                yield delta
+    else:
+        yield from stream_ollama(prompt)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -452,7 +582,7 @@ def rag_load_docs(cache_dir: Path) -> None:
 
     to_embed = [c for c in _rag_chunks if c["emb"] is None]
     if to_embed:
-        embeddings = _ollama_embed_batch([c["text"] for c in to_embed])
+        embeddings = _embed_batch([c["text"] for c in to_embed])
         embedded = 0
         for chunk, emb in zip(to_embed, embeddings):
             if emb is not None:
@@ -466,14 +596,16 @@ def rag_add_docs(files: list, cache_dir: Path) -> tuple[str, list]:
     global _rag_indexed_files
     if not files:
         return "Nessun file caricato.", rag_doc_list()
-    try:
-        requests.get(f"{OLLAMA_URL}/api/tags", timeout=3)
-    except Exception:
-        return (
-            "❌ Ollama non raggiungibile — i documenti non possono essere indicizzati.\n"
-            "Avvia `ollama serve` e ricarica.",
-            rag_doc_list(),
-        )
+    from core.providers import is_openai_model
+    if not is_openai_model(_embed_model):
+        try:
+            requests.get(f"{OLLAMA_URL}/api/tags", timeout=3)
+        except Exception:
+            return (
+                "❌ Ollama non raggiungibile — i documenti non possono essere indicizzati.\n"
+                "Avvia `ollama serve` e ricarica.",
+                rag_doc_list(),
+            )
     lines = []
     for f in files:
         path = Path(f.name)
@@ -515,7 +647,7 @@ def rag_add_docs(files: list, cache_dir: Path) -> tuple[str, list]:
             continue
 
         chunks = _chunk_text(text, path.name)
-        embeddings = _ollama_embed_batch([c["text"] for c in chunks])
+        embeddings = _embed_batch([c["text"] for c in chunks])
         embedded = 0
         for chunk, emb in zip(chunks, embeddings):
             if emb is not None:
@@ -582,9 +714,11 @@ def rag_retrieve(question: str) -> tuple[list | None, str | None]:
             f"⏳ Embedding in corso (0/{total} chunk pronti). "
             "Riprovare tra qualche secondo — l'indicizzazione procede in background."
         )
-    q_emb = _ollama_embed(question)
+    q_emb = _embed(question)
     if q_emb is None:
-        return None, "❌ Impossibile generare l'embedding della domanda. Ollama è in esecuzione?"
+        from core.providers import is_openai_model
+        provider = "OpenAI" if is_openai_model(_embed_model) else "Ollama"
+        return None, f"❌ Impossibile generare l'embedding della domanda. {provider} è raggiungibile?"
 
     synthetic_sources = {s for s, _ in _RAG_SYNTHETIC_DOCS}
     user_chunks = [c for c in _rag_chunks if c["emb"] is not None and c["source"] not in synthetic_sources]
@@ -618,7 +752,8 @@ def rag_chat_stream(
     The caller (e.g. Gradio wrapper) is responsible for formatting history.
     history is a list of {"role": "user"|"assistant", "content": str}.
     """
-    if not check_ollama():
+    from core.providers import is_openai_model
+    if not is_openai_model(_rag_model) and not check_ollama():
         yield (
             "❌ **Ollama non raggiungibile.**\n\n"
             "Avvia il server con:\n```\nollama serve\n```\n"
@@ -665,7 +800,7 @@ def rag_chat_stream(
 
     partial = ""
     try:
-        for token in stream_ollama(prompt):
+        for token in stream_llm(prompt):
             partial += token
             yield partial, None
     except Exception as e:
@@ -687,14 +822,16 @@ def pipeline_llm_synthesis(
     step5_report: str,
     step6_report: str,
 ) -> str:
-    """Call Ollama to synthesise forensic pipeline results into a narrative report."""
-    try:
-        requests.get(f"{OLLAMA_URL}/api/tags", timeout=3)
-    except Exception:
-        return (
-            "❌ **Ollama non raggiungibile.** Avvia il server con:\n"
-            "```\nollama serve\n```"
-        )
+    """Call the active LLM to synthesise forensic pipeline results into a narrative report."""
+    from core.providers import is_openai_model
+    if not is_openai_model(_rag_model):
+        try:
+            requests.get(f"{OLLAMA_URL}/api/tags", timeout=3)
+        except Exception:
+            return (
+                "❌ **Ollama non raggiungibile.** Avvia il server con:\n"
+                "```\nollama serve\n```"
+            )
     prompt = (
         "Sei un perito calligrafo forense esperto. "
         "Sulla base delle seguenti analisi tecniche su un documento, "
@@ -711,7 +848,7 @@ def pipeline_llm_synthesis(
     )
     result = ""
     try:
-        for token in stream_ollama(prompt):
+        for token in stream_llm(prompt):
             result += token
     except Exception as e:
         return f"❌ Errore nella generazione LLM: {e}"

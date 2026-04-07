@@ -166,7 +166,15 @@
     "model_saved": "Model updated",
     "refresh": "Refresh model list",
     "ocr_model_label": "OCR Model",
-    "vlm_model_label": "VLM Model (vision)"
+    "vlm_model_label": "VLM Model (vision)",
+    "embed_model_label": "Embedding Model",
+    "openai_key_label": "OpenAI API Key",
+    "openai_key_ok": "Configured",
+    "openai_key_change": "Change",
+    "openai_key_add": "Add key",
+    "openai_key_missing": "Not configured — add a key to enable OpenAI models",
+    "openai_key_saved": "API key saved",
+    "openai_key_error": "Invalid or unauthorized API key"
   },
   "compliance": {
     "title": "ENFSI Compliance",

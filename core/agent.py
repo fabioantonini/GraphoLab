@@ -532,9 +532,15 @@ def create_forensic_agent(model: str = AGENT_MODEL, project_context: str | None 
     import inspect
     from langgraph.prebuilt import create_react_agent
     from langchain_core.messages import SystemMessage
-    from langchain_ollama import ChatOllama
+    from core.providers import is_openai_model
 
-    llm = ChatOllama(model=model, temperature=0)
+    if is_openai_model(model):
+        from langchain_openai import ChatOpenAI
+        from core.providers import _read_openai_key
+        llm = ChatOpenAI(model=model, temperature=0, openai_api_key=_read_openai_key())
+    else:
+        from langchain_ollama import ChatOllama
+        llm = ChatOllama(model=model, temperature=0)
     prompt_text = FORENSIC_SYSTEM_PROMPT
     if project_context:
         prompt_text = prompt_text + "\n\n" + project_context

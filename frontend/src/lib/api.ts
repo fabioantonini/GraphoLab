@@ -258,13 +258,24 @@ export const agentProjectsApi = {
 
 // RAG
 export const ragApi = {
-  status: () => api.get<{ ollama_reachable: boolean; models: string[] }>("/rag/status"),
+  status: () => api.get<{
+    ollama_reachable: boolean
+    models: string[]
+    openai_available: boolean
+    openai_llm_models: string[]
+    openai_vlm_models: string[]
+    openai_embed_models: string[]
+  }>("/rag/status"),
   getModel: () => api.get<{ model: string }>("/rag/model"),
   setModel: (model: string) => api.put<{ model: string; detail: string }>("/rag/model", { model }),
   getOcrModel: () => api.get<{ ocr_model: string }>("/rag/ocr-model"),
   setOcrModel: (model: string) => api.put<{ ocr_model: string; detail: string }>("/rag/ocr-model", { model }),
   getVlmModel: () => api.get<{ vlm_model: string }>("/rag/vlm-model"),
   setVlmModel: (model: string) => api.put<{ vlm_model: string; detail: string }>("/rag/vlm-model", { model }),
+  getOpenAIKeyStatus: () => api.get<{ configured: boolean }>("/rag/openai-key"),
+  setOpenAIKey: (api_key: string) => api.put<{ ok: boolean }>("/rag/openai-key", { api_key }),
+  getEmbedModel: () => api.get<{ embed_model: string }>("/rag/embed-model"),
+  setEmbedModel: (model: string) => api.put<{ embed_model: string; detail: string }>("/rag/embed-model", { model }),
   listDocs: () => api.get<{ filename: string; chunks: number }[]>("/rag/docs"),
   addDoc: (file: File) => {
     const fd = new FormData()

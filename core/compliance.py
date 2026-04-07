@@ -290,39 +290,59 @@ def _build_deterministic_summary(text: str) -> str:
 def compliance_check_stream(perizia_text: str) -> Generator[str, None, None]:
     """
     Stream the ENFSI compliance analysis of a perizia.
-    Uses Ollama /api/generate with a dedicated system prompt (role anchor) and a
-    separate user prompt (perizia text only), plus an enlarged context window.
-    Yields the full accumulated text at each step (same contract as rag_chat_stream).
+    Routes to OpenAI chat completions or Ollama /api/generate depending on the
+    active LLM model.  Yields the full accumulated text at each step (same
+    contract as rag_chat_stream).
     """
     from core.rag import OLLAMA_URL, _rag_model
+    from core.providers import is_openai_model
 
     system_prompt = _build_system_prompt()
     user_prompt = _build_user_prompt(perizia_text)
-
     accumulated = ""
-    with requests.post(
-        f"{OLLAMA_URL}/api/generate",
-        json={
-            "model": _rag_model,
-            "system": system_prompt,
-            "prompt": user_prompt,
-            "stream": True,
-            "keep_alive": "10m",
-            "options": {
-                "num_ctx": 32768,  # system prompt + perizia + 20-block output
-                "temperature": 0,
-                "repeat_penalty": 1.1,
+
+    if is_openai_model(_rag_model):
+        from core.providers import get_openai_client
+        client = get_openai_client()
+        stream = client.chat.completions.create(
+            model=_rag_model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_prompt},
+            ],
+            stream=True,
+            temperature=0,
+            max_completion_tokens=8192,
+        )
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content or ""
+            if delta:
+                accumulated += delta
+                yield accumulated
+    else:
+        with requests.post(
+            f"{OLLAMA_URL}/api/generate",
+            json={
+                "model": _rag_model,
+                "system": system_prompt,
+                "prompt": user_prompt,
+                "stream": True,
+                "keep_alive": "10m",
+                "options": {
+                    "num_ctx": 32768,  # system prompt + perizia + 20-block output
+                    "temperature": 0,
+                    "repeat_penalty": 1.1,
+                },
             },
-        },
-        stream=True,
-        timeout=300,
-    ) as r:
-        for line in r.iter_lines():
-            if line:
-                data = json.loads(line)
-                if not data.get("done"):
-                    accumulated += data.get("response", "")
-                    yield accumulated
+            stream=True,
+            timeout=300,
+        ) as r:
+            for line in r.iter_lines():
+                if line:
+                    data = json.loads(line)
+                    if not data.get("done"):
+                        accumulated += data.get("response", "")
+                        yield accumulated
 
     # Append deterministic summary built from parsed verdicts — never wrong
     summary = _build_deterministic_summary(accumulated)

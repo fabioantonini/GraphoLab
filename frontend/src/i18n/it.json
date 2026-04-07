@@ -166,7 +166,15 @@
     "model_saved": "Modello aggiornato",
     "refresh": "Aggiorna lista modelli",
     "ocr_model_label": "Modello OCR",
-    "vlm_model_label": "Modello VLM (visione)"
+    "vlm_model_label": "Modello VLM (visione)",
+    "embed_model_label": "Modello Embedding",
+    "openai_key_label": "Chiave API OpenAI",
+    "openai_key_ok": "Configurata",
+    "openai_key_change": "Modifica",
+    "openai_key_add": "Aggiungi chiave",
+    "openai_key_missing": "Non configurata — aggiungi una chiave per abilitare i modelli OpenAI",
+    "openai_key_saved": "Chiave API salvata",
+    "openai_key_error": "Chiave API non valida o non autorizzata"
   },
   "compliance": {
     "title": "Conformità ENFSI",

@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
-import { FolderOpen, MessageSquare, Users, Microscope, LogOut, Globe, ClipboardCheck, RefreshCw, Bot, Plus, ChevronDown, ChevronRight } from "lucide-react"
+import { FolderOpen, MessageSquare, Users, Microscope, LogOut, Globe, ClipboardCheck, RefreshCw, Bot, Plus, ChevronDown, ChevronRight, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth"
 import { authApi, ragApi, agentProjectsApi, type AgentProject } from "@/lib/api"
@@ -37,6 +37,15 @@ export default function Sidebar() {
   const [ollamaUp, setOllamaUp] = useState<boolean | null>(null)
   const [refreshing, setRefreshing] = useState(false)
 
+  // OpenAI state
+  const [openaiModels, setOpenaiModels] = useState<{ llm: string[]; vlm: string[]; embed: string[] }>({ llm: [], vlm: [], embed: [] })
+  const [currentEmbedModel, setCurrentEmbedModel] = useState<string>("nomic-embed-text")
+  const [openaiKeyConfigured, setOpenaiKeyConfigured] = useState(false)
+  const [showKeyInput, setShowKeyInput] = useState(false)
+  const [keyDraft, setKeyDraft] = useState("")
+  const [savingKey, setSavingKey] = useState(false)
+  const [keyError, setKeyError] = useState("")
+
   const OCR_MODELS = ["easyocr", "vlm", "paddleocr", "trocr"]
 
   async function loadModels() {
@@ -45,6 +54,11 @@ export default function Sidebar() {
       const r = await ragApi.status()
       setOllamaUp(r.data.ollama_reachable)
       setModels(r.data.models)
+      setOpenaiModels({
+        llm:   r.data.openai_llm_models   ?? [],
+        vlm:   r.data.openai_vlm_models   ?? [],
+        embed: r.data.openai_embed_models ?? [],
+      })
     } catch {
       setOllamaUp(false)
     } finally {
@@ -57,8 +71,33 @@ export default function Sidebar() {
     ragApi.getModel().then(r => setCurrentModel(r.data.model)).catch(() => {})
     ragApi.getOcrModel().then(r => setCurrentOcrModel(r.data.ocr_model)).catch(() => {})
     ragApi.getVlmModel().then(r => setCurrentVlmModel(r.data.vlm_model)).catch(() => {})
+    ragApi.getOpenAIKeyStatus().then(r => setOpenaiKeyConfigured(r.data.configured)).catch(() => {})
+    ragApi.getEmbedModel().then(r => setCurrentEmbedModel(r.data.embed_model)).catch(() => {})
     agentProjectsApi.listProjects().then(r => setAgentProjects(r.data)).catch(() => {})
   }, [])
+
+  async function handleEmbedModelChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const model = e.target.value
+    setCurrentEmbedModel(model)
+    try { await ragApi.setEmbedModel(model) } catch { /* no-op */ }
+  }
+
+  async function handleSaveKey(e: React.FormEvent) {
+    e.preventDefault()
+    setKeyError("")
+    setSavingKey(true)
+    try {
+      await ragApi.setOpenAIKey(keyDraft)
+      setOpenaiKeyConfigured(true)
+      setShowKeyInput(false)
+      setKeyDraft("")
+      await loadModels()
+    } catch {
+      setKeyError(t("config.openai_key_error"))
+    } finally {
+      setSavingKey(false)
+    }
+  }
 
   async function handleCreateProject() {
     if (!newProjectTitle.trim()) return
@@ -261,9 +300,9 @@ export default function Sidebar() {
           </button>
         </div>
         <label className="block text-xs text-muted-foreground mb-1">{t("config.model_label")}</label>
-        {ollamaUp === false ? (
+        {ollamaUp === false && openaiModels.llm.length === 0 ? (
           <p className="text-xs text-destructive">{t("config.model_offline")}</p>
-        ) : models.length === 0 ? (
+        ) : models.length === 0 && openaiModels.llm.length === 0 ? (
           <p className="text-xs text-muted-foreground">{t("config.model_loading")}</p>
         ) : (
           <select
@@ -271,9 +310,16 @@ export default function Sidebar() {
             onChange={handleModelChange}
             className="w-full rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
           >
-            {models.map(m => (
-              <option key={m} value={m}>{m}</option>
-            ))}
+            {models.length > 0 && (
+              <optgroup label="Ollama">
+                {models.map(m => <option key={m} value={m}>{m}</option>)}
+              </optgroup>
+            )}
+            {openaiModels.llm.length > 0 && (
+              <optgroup label="OpenAI">
+                {openaiModels.llm.map(m => <option key={m} value={m}>{m}</option>)}
+              </optgroup>
+            )}
           </select>
         )}
         <label className="block text-xs text-muted-foreground mt-2 mb-1">{t("config.ocr_model_label")}</label>
@@ -287,7 +333,7 @@ export default function Sidebar() {
           ))}
         </select>
         <label className="block text-xs text-muted-foreground mt-2 mb-1">{t("config.vlm_model_label")}</label>
-        {models.length === 0 ? (
+        {models.length === 0 && openaiModels.vlm.length === 0 ? (
           <p className="text-xs text-muted-foreground">{t("config.model_loading")}</p>
         ) : (
           <select
@@ -295,11 +341,85 @@ export default function Sidebar() {
             onChange={handleVlmModelChange}
             className="w-full rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
           >
-            {models.map(m => (
-              <option key={m} value={m}>{m}</option>
-            ))}
+            {models.length > 0 && (
+              <optgroup label="Ollama">
+                {models.map(m => <option key={m} value={m}>{m}</option>)}
+              </optgroup>
+            )}
+            {openaiModels.vlm.length > 0 && (
+              <optgroup label="OpenAI">
+                {openaiModels.vlm.map(m => <option key={m} value={m}>{m}</option>)}
+              </optgroup>
+            )}
           </select>
         )}
+
+        {/* OpenAI Embedding model (visible only when OpenAI key is configured) */}
+        {openaiKeyConfigured && (
+          <>
+            <label className="block text-xs text-muted-foreground mt-2 mb-1">{t("config.embed_model_label")}</label>
+            <select
+              value={currentEmbedModel}
+              onChange={handleEmbedModelChange}
+              className="w-full rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              <optgroup label="Ollama">
+                <option value="nomic-embed-text">nomic-embed-text</option>
+              </optgroup>
+              <optgroup label="OpenAI">
+                {openaiModels.embed.map(m => <option key={m} value={m}>{m}</option>)}
+              </optgroup>
+            </select>
+          </>
+        )}
+
+        {/* OpenAI API Key section */}
+        <div className="mt-3 pt-3 border-t">
+          <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+            {t("config.openai_key_label")}
+          </label>
+          {openaiKeyConfigured && !showKeyInput ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-green-600 dark:text-green-400">{t("config.openai_key_ok")}</span>
+              <button
+                className="text-xs text-muted-foreground underline"
+                onClick={() => setShowKeyInput(true)}
+              >
+                {t("config.openai_key_change")}
+              </button>
+            </div>
+          ) : !showKeyInput ? (
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">{t("config.openai_key_missing")}</p>
+              <button
+                className="text-xs text-primary underline"
+                onClick={() => setShowKeyInput(true)}
+              >
+                {t("config.openai_key_add")}
+              </button>
+            </div>
+          ) : null}
+          {showKeyInput && (
+            <form onSubmit={handleSaveKey} className="flex gap-1 mt-1">
+              <input
+                type="password"
+                value={keyDraft}
+                onChange={e => { setKeyDraft(e.target.value); setKeyError("") }}
+                placeholder="sk-…"
+                className="flex-1 min-w-0 rounded border bg-background px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+              <Button
+                type="submit"
+                size="icon"
+                className="h-6 w-6 shrink-0"
+                disabled={savingKey || !keyDraft.trim()}
+              >
+                <Check className="h-3 w-3" />
+              </Button>
+            </form>
+          )}
+          {keyError && <p className="text-xs text-destructive mt-1">{keyError}</p>}
+        </div>
       </div>
 
       {/* Footer */}

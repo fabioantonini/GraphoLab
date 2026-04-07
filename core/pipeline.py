@@ -20,6 +20,17 @@ from typing import Generator
 import numpy as np
 
 
+def _llm_provider_label() -> str:
+    """Return 'OpenAI (gpt-5.4)' or 'Ollama (qwen3:4b)' based on the active model."""
+    try:
+        from core.rag import _rag_model
+        from core.providers import is_openai_model
+        provider = "OpenAI" if is_openai_model(_rag_model) else "Ollama"
+        return f"{provider} · {_rag_model}"
+    except Exception:
+        return "LLM"
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Data structures
 # ──────────────────────────────────────────────────────────────────────────────
@@ -181,7 +192,7 @@ def run_pipeline_steps(
         f"### Step 4 — Identificazione Scrittore\n{results.writer_report}\n\n"
         f"### Step 5 — Caratteristiche Grafologiche\n{results.grapho_report}\n\n"
         f"### Step 6 — Verifica Firma\n{results.sig_verify_report}\n\n"
-        f"### Step 7 — Valutazione LLM (Ollama)\n{results.llm_report}\n\n"
+        f"### Step 7 — Valutazione LLM ({_llm_provider_label()})\n{results.llm_report}\n\n"
         "---\n\n"
         "*Referto generato automaticamente da GraphoLab. "
         "Tutti i risultati hanno carattere indicativo e devono essere valutati "
@@ -370,7 +381,7 @@ def generate_forensic_pdf(results: PipelineResults) -> str:
     _body_text(results.sig_verify_report)
     _embed_image(results.sig_verify_chart)
 
-    _section_title("Step 7 — Valutazione LLM (Ollama)")
+    _section_title(f"Step 7 — Valutazione LLM ({_llm_provider_label()})")
     _llm_text(results.llm_report)
 
     pdf.ln(6)

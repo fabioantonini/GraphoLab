@@ -48,6 +48,10 @@ python-docx>=0.8    # read DOCX files
 langchain>=0.3.0
 langchain-ollama>=0.2.0
 langchain-core>=0.3.0
+langchain-openai>=0.3.0
+
+# OpenAI API (opzionale — necessario solo se si usa OPENAI_API_KEY)
+openai>=2.0.0
 
 # Document layout detection — PaddleOCR (Agente Documentale)
 # CPU build: paddlepaddle; GPU build: paddlepaddle-gpu

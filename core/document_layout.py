@@ -262,23 +262,37 @@ def call_vision_model(
     if model is None:
         model = _get_active_model()
     b64 = _image_to_base64(pil_img)
-    payload = {
-        "model": model,
-        "messages": [
-            {
-                "role": "user",
-                "content": prompt,
-                "images": [b64],
-            }
-        ],
-        "stream": False,
-        "options": {"temperature": 0},
-    }
+
+    from core.providers import is_openai_model
+    if is_openai_model(model):
+        try:
+            from core.providers import get_openai_client
+            client = get_openai_client()
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                    ],
+                }],
+                temperature=0,
+                max_completion_tokens=4096,
+            )
+            return resp.choices[0].message.content.strip()
+        except Exception as e:
+            return f"Errore OpenAI VLM: {e}"
+
     try:
-        payload["stream"] = True
         r = requests.post(
             f"{ollama_url}/api/chat",
-            json=payload,
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": prompt, "images": [b64]}],
+                "stream": True,
+                "options": {"temperature": 0},
+            },
             stream=True,
             timeout=(10, 300),
         )

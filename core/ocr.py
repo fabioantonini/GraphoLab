@@ -202,6 +202,24 @@ def _vlm_transcribe(image: np.ndarray, ollama_url: str = "http://localhost:11434
     except Exception:
         model = "qwen3-vl:8b"
 
+    from core.providers import is_openai_model
+    if is_openai_model(model):
+        from core.providers import get_openai_client
+        client = get_openai_client()
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": _HTR_PROMPT},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                ],
+            }],
+            temperature=0,
+            max_completion_tokens=2048,
+        )
+        return resp.choices[0].message.content.strip()
+
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": _HTR_PROMPT, "images": [b64]}],

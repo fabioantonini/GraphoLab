@@ -33,6 +33,10 @@ class ModelSelect(BaseModel):
     model: str
 
 
+class OpenAIKeyPayload(BaseModel):
+    api_key: str
+
+
 class DocInfo(BaseModel):
     filename: str
     chunks: int
@@ -82,9 +86,62 @@ async def set_ocr_model_endpoint(body: ModelSelect, _: User = Depends(get_curren
 @router.get("/status")
 async def rag_status(_: User = Depends(get_current_user)) -> dict:
     from core.rag import check_ollama, ollama_list_models
+    from core.providers import (
+        openai_key_configured,
+        OPENAI_LLM_MODELS,
+        OPENAI_VLM_MODELS,
+        OPENAI_EMBED_MODELS,
+    )
     reachable = check_ollama()
     models = ollama_list_models() if reachable else []
-    return {"ollama_reachable": reachable, "models": models}
+    has_openai = openai_key_configured()
+    return {
+        "ollama_reachable": reachable,
+        "models": models,
+        "openai_available": has_openai,
+        "openai_llm_models":   OPENAI_LLM_MODELS   if has_openai else [],
+        "openai_vlm_models":   OPENAI_VLM_MODELS   if has_openai else [],
+        "openai_embed_models": OPENAI_EMBED_MODELS  if has_openai else [],
+    }
+
+
+@router.get("/openai-key")
+async def get_openai_key_status(_: User = Depends(get_current_user)) -> dict:
+    from core.providers import openai_key_configured
+    return {"configured": openai_key_configured()}
+
+
+@router.put("/openai-key")
+async def set_openai_key(
+    body: OpenAIKeyPayload,
+    _: User = Depends(get_current_user),
+) -> dict:
+    from core.providers import validate_openai_key, persist_openai_key, invalidate_openai_client
+    try:
+        valid = validate_openai_key(body.api_key)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    if not valid:
+        raise HTTPException(status_code=400, detail="Chiave OpenAI non valida o non autorizzata")
+    persist_openai_key(body.api_key)
+    invalidate_openai_client()
+    return {"ok": True}
+
+
+@router.get("/embed-model")
+async def get_embed_model_endpoint(_: User = Depends(get_current_user)) -> dict:
+    from core.rag import get_embed_model
+    return {"embed_model": get_embed_model()}
+
+
+@router.put("/embed-model")
+async def set_embed_model_endpoint(
+    body: ModelSelect,
+    _: User = Depends(get_current_user),
+) -> dict:
+    from core.rag import set_embed_model
+    msg = set_embed_model(body.model)
+    return {"embed_model": body.model, "detail": msg}
 
 
 @router.get("/docs", response_model=list[DocInfo])

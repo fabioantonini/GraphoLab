@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     ollama_model: str = "qwen3:4b"
     vlm_model: str = "qwen3-vl:8b"
 
+    # ── OpenAI (opzionale) ────────────────────────────────────────────────────
+    openai_api_key: str = ""
+    openai_embed_model: str = "text-embedding-3-small"
+
     # ── CORS (comma-separated origins for the React frontend) ─────────────────
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
 
