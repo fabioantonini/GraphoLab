@@ -946,7 +946,7 @@ with gr.Blocks() as agent_tab:
     def _agent_respond(message, history, files):
         """Gradio generator: yield (input_clear, updated_history) on each stream event.
 
-        History format: list of [user_msg, bot_msg] tuples (Gradio default).
+        History format: list of {role, content} dicts (Gradio 5 messages format).
         """
         if not message or not message.strip():
             yield "", history
@@ -960,19 +960,20 @@ with gr.Blocks() as agent_tab:
                 if path:
                     file_paths.append(path)
 
-        # Convert Gradio tuple history [[user, bot], ...] to agent dict format
-        agent_history = []
-        for pair in (history or []):
-            if pair[0]:
-                agent_history.append({"role": "user", "content": pair[0]})
-            if pair[1]:
-                agent_history.append({"role": "assistant", "content": pair[1]})
+        # history is already in messages format — pass as-is to agent
+        agent_history = [
+            {"role": msg["role"], "content": _content_str(msg["content"])}
+            for msg in (history or [])
+        ]
 
-        # Add user turn as a new [user, None] pair
-        updated_history = list(history or []) + [[message, None]]
+        # Add user turn and placeholder assistant turn
+        updated_history = list(history or []) + [
+            {"role": "user", "content": message},
+            {"role": "assistant", "content": ""},
+        ]
 
         for text in agent_stream(message, file_paths, agent_history):
-            updated_history[-1] = [message, _fix_agent_image_urls(text)]
+            updated_history[-1] = {"role": "assistant", "content": _fix_agent_image_urls(text)}
             yield "", updated_history
 
     _send_event = agent_send_btn.click(
