@@ -6,6 +6,9 @@ import { Button } from "@/components/ui/button"
 interface SettingsDialogProps {
   open: boolean
   onClose: () => void
+  // Language
+  currentLang: string
+  onToggleLang: () => void
   // Ollama + OpenAI models
   models: string[]
   ollamaUp: boolean | null
@@ -63,6 +66,8 @@ export default function SettingsDialog({
   keyError,
   onSaveKey,
   onDeleteKey,
+  currentLang,
+  onToggleLang,
 }: SettingsDialogProps) {
   const { t } = useTranslation()
 
@@ -219,6 +224,17 @@ export default function SettingsDialog({
               </form>
             )}
             {keyError && <p className="text-xs text-destructive mt-1">{keyError}</p>}
+          </div>
+
+          {/* Language */}
+          <div className="pt-2 border-t flex items-center justify-between">
+            <label className="text-sm font-medium">{t("config.language_label")}</label>
+            <button
+              onClick={onToggleLang}
+              className="text-sm text-primary underline"
+            >
+              {currentLang === "it" ? "English" : "Italiano"}
+            </button>
           </div>
 
         </div>

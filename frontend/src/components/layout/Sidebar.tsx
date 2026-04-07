@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
-import { FolderOpen, MessageSquare, Users, Microscope, LogOut, Globe, ClipboardCheck, Bot, Plus, ChevronDown, ChevronRight, Settings, HelpCircle, ChevronsUpDown } from "lucide-react"
+import { FolderOpen, MessageSquare, Users, Microscope, LogOut, ClipboardCheck, Bot, Plus, ChevronDown, ChevronRight, Settings, HelpCircle, ChevronsUpDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth"
 import { authApi, ragApi, usersApi, agentProjectsApi, type AgentProject } from "@/lib/api"
@@ -368,11 +368,6 @@ export default function Sidebar() {
               {t("nav.help")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={toggleLang}>
-              <Globe className="mr-2 h-4 w-4" />
-              {i18n.language === "it" ? "English" : "Italiano"}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
               <LogOut className="mr-2 h-4 w-4" />
               {t("auth.logout")}
@@ -405,6 +400,8 @@ export default function Sidebar() {
           keyError={keyError}
           onSaveKey={handleSaveKey}
           onDeleteKey={handleDeleteKey}
+          currentLang={i18n.language}
+          onToggleLang={toggleLang}
         />
       </div>
     </aside>
