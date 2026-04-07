@@ -363,7 +363,7 @@ export default function Sidebar() {
               <Settings className="mr-2 h-4 w-4" />
               {t("nav.settings")}
             </DropdownMenuItem>
-            <DropdownMenuItem disabled>
+            <DropdownMenuItem onClick={() => navigate("/guida")}>
               <HelpCircle className="mr-2 h-4 w-4" />
               {t("nav.help")}
             </DropdownMenuItem>

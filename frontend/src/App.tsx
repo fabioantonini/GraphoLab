@@ -9,6 +9,7 @@ import AgentPage from "@/pages/AgentPage"
 import AgentProjectPage from "@/pages/AgentProjectPage"
 import AdminPage from "@/pages/AdminPage"
 import ResetPasswordPage from "@/pages/ResetPasswordPage"
+import GuidaPage from "@/pages/GuidaPage"
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
           <Route path="/agent" element={<AgentPage />} />
           <Route path="/agent/projects/:projectId" element={<AgentProjectPage />} />
           <Route path="/admin/*" element={<AdminPage />} />
+          <Route path="/guida" element={<GuidaPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/projects" replace />} />
       </Routes>
