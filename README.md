@@ -8,7 +8,7 @@ sdk_version: "5.25.0"
 app_file: app/grapholab_demo.py
 pinned: false
 license: apache-2.0
-short_description: AI-powered forensic graphology platform (HTR, signatures, NER, ENFSI compliance)
+short_description: AI-powered forensic graphology platform
 ---
 
 # GraphoLab — Forensic Graphology Laboratory
