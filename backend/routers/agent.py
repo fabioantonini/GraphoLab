@@ -38,6 +38,7 @@ from sqlalchemy.orm import selectinload
 from backend.audit import log_event
 from backend.auth.dependencies import get_current_user
 from backend.database import get_db
+from backend.routers._deps import set_openai_context
 from backend.models.audit import AuditAction
 from backend.models.project import AgentChat, AgentMessage, Document, Project, ProjectStatus
 from backend.models.user import Role, User
@@ -376,6 +377,7 @@ async def chat(
     reused_doc_ids: str = Form(default="[]"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    _ctx: None = Depends(set_openai_context),
 ) -> StreamingResponse:
     """Stream agent response as Server-Sent Events.
 

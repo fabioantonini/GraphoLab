@@ -99,6 +99,8 @@ services:
       - OLLAMA_HOST=http://ollama:11434
       - SECRET_KEY=${SECRET_KEY:-change_me_in_production}
       - HF_HOME=/app/cache
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - SETTINGS_ENCRYPTION_KEY=${SETTINGS_ENCRYPTION_KEY:-}
     volumes:
       - ./data:/app/data
       - hf_cache:/app/cache

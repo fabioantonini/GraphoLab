@@ -57,6 +57,39 @@ async def get_db() -> AsyncSession:
 
 
 async def init_db() -> None:
-    """Create all tables (called at startup if they don't exist yet)."""
+    """Create all tables and apply incremental column migrations."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _migrate(conn)
+
+
+async def _migrate(conn) -> None:
+    """Add new columns to existing tables without touching existing data.
+
+    SQLite does not support IF NOT EXISTS in ALTER TABLE, so we catch the
+    OperationalError that fires when a column already exists and continue.
+    PostgreSQL supports ADD COLUMN IF NOT EXISTS natively.
+    """
+    is_sqlite = settings.database_url.startswith("sqlite")
+
+    new_columns = [
+        ("user_settings", "rag_model",   "VARCHAR(128)"),
+        ("user_settings", "vlm_model",   "VARCHAR(128)"),
+        ("user_settings", "ocr_model",   "VARCHAR(64)"),
+        ("user_settings", "embed_model", "VARCHAR(128)"),
+    ]
+
+    for table, column, col_type in new_columns:
+        if is_sqlite:
+            try:
+                await conn.execute(
+                    text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+                )
+            except Exception:
+                pass  # column already exists — safe to ignore
+        else:
+            await conn.execute(
+                text(
+                    f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {col_type}"
+                )
+            )

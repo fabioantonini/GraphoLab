@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_embed_model: str = "text-embedding-3-small"
 
+    # ── Per-user settings encryption ──────────────────────────────────────────
+    # Fernet symmetric key (base64-url-encoded, 32 bytes).
+    # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # If empty, keys are stored un-encrypted (degraded mode — not recommended for production).
+    settings_encryption_key: str = ""
+
     # ── CORS (comma-separated origins for the React frontend) ─────────────────
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
 

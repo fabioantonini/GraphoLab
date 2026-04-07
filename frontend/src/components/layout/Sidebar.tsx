@@ -1,9 +1,9 @@
 import { NavLink, useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
-import { FolderOpen, MessageSquare, Users, Microscope, LogOut, Globe, ClipboardCheck, RefreshCw, Bot, Plus, ChevronDown, ChevronRight, Check } from "lucide-react"
+import { FolderOpen, MessageSquare, Users, Microscope, LogOut, Globe, ClipboardCheck, RefreshCw, Bot, Plus, ChevronDown, ChevronRight, Check, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth"
-import { authApi, ragApi, agentProjectsApi, type AgentProject } from "@/lib/api"
+import { authApi, ragApi, usersApi, agentProjectsApi, type AgentProject } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import i18n from "@/i18n"
 import { useState, useEffect } from "react"
@@ -68,18 +68,57 @@ export default function Sidebar() {
 
   useEffect(() => {
     loadModels()
-    ragApi.getModel().then(r => setCurrentModel(r.data.model)).catch(() => {})
-    ragApi.getOcrModel().then(r => setCurrentOcrModel(r.data.ocr_model)).catch(() => {})
-    ragApi.getVlmModel().then(r => setCurrentVlmModel(r.data.vlm_model)).catch(() => {})
-    ragApi.getOpenAIKeyStatus().then(r => setOpenaiKeyConfigured(r.data.configured)).catch(() => {})
-    ragApi.getEmbedModel().then(r => setCurrentEmbedModel(r.data.embed_model)).catch(() => {})
     agentProjectsApi.listProjects().then(r => setAgentProjects(r.data)).catch(() => {})
+
+    // Restore per-user settings (model preferences + OpenAI key status) from DB.
+    // If the user has saved preferences, apply them to the backend global state so
+    // all subsequent requests use the correct model.
+    usersApi.getSettings().then(async r => {
+      const s = r.data
+      setOpenaiKeyConfigured(s.openai_key_configured)
+
+      // Restore saved models — fall back to current server state if not saved yet
+      if (s.rag_model) {
+        setCurrentModel(s.rag_model)
+        await ragApi.setModel(s.rag_model).catch(() => {})
+      } else {
+        ragApi.getModel().then(r2 => setCurrentModel(r2.data.model)).catch(() => {})
+      }
+
+      if (s.vlm_model) {
+        setCurrentVlmModel(s.vlm_model)
+        await ragApi.setVlmModel(s.vlm_model).catch(() => {})
+      } else {
+        ragApi.getVlmModel().then(r2 => setCurrentVlmModel(r2.data.vlm_model)).catch(() => {})
+      }
+
+      if (s.ocr_model) {
+        setCurrentOcrModel(s.ocr_model)
+        await ragApi.setOcrModel(s.ocr_model).catch(() => {})
+      } else {
+        ragApi.getOcrModel().then(r2 => setCurrentOcrModel(r2.data.ocr_model)).catch(() => {})
+      }
+
+      if (s.embed_model) {
+        setCurrentEmbedModel(s.embed_model)
+        await ragApi.setEmbedModel(s.embed_model).catch(() => {})
+      } else {
+        ragApi.getEmbedModel().then(r2 => setCurrentEmbedModel(r2.data.embed_model)).catch(() => {})
+      }
+    }).catch(() => {
+      // Fallback: read current server state directly
+      ragApi.getModel().then(r => setCurrentModel(r.data.model)).catch(() => {})
+      ragApi.getOcrModel().then(r => setCurrentOcrModel(r.data.ocr_model)).catch(() => {})
+      ragApi.getVlmModel().then(r => setCurrentVlmModel(r.data.vlm_model)).catch(() => {})
+      ragApi.getEmbedModel().then(r => setCurrentEmbedModel(r.data.embed_model)).catch(() => {})
+    })
   }, [])
 
   async function handleEmbedModelChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const model = e.target.value
     setCurrentEmbedModel(model)
     try { await ragApi.setEmbedModel(model) } catch { /* no-op */ }
+    usersApi.saveModelPreferences({ embed_model: model }).catch(() => {})
   }
 
   async function handleSaveKey(e: React.FormEvent) {
@@ -87,7 +126,7 @@ export default function Sidebar() {
     setKeyError("")
     setSavingKey(true)
     try {
-      await ragApi.setOpenAIKey(keyDraft)
+      await usersApi.saveOpenAIKey(keyDraft)
       setOpenaiKeyConfigured(true)
       setShowKeyInput(false)
       setKeyDraft("")
@@ -96,6 +135,16 @@ export default function Sidebar() {
       setKeyError(t("config.openai_key_error"))
     } finally {
       setSavingKey(false)
+    }
+  }
+
+  async function handleDeleteKey() {
+    try {
+      await usersApi.deleteOpenAIKey()
+      setOpenaiKeyConfigured(false)
+      await loadModels()
+    } catch {
+      // no-op
     }
   }
 
@@ -119,18 +168,21 @@ export default function Sidebar() {
     const model = e.target.value
     setCurrentModel(model)
     try { await ragApi.setModel(model) } catch { /* no-op */ }
+    usersApi.saveModelPreferences({ rag_model: model }).catch(() => {})
   }
 
   async function handleOcrModelChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const model = e.target.value
     setCurrentOcrModel(model)
     try { await ragApi.setOcrModel(model) } catch { /* no-op */ }
+    usersApi.saveModelPreferences({ ocr_model: model }).catch(() => {})
   }
 
   async function handleVlmModelChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const model = e.target.value
     setCurrentVlmModel(model)
     try { await ragApi.setVlmModel(model) } catch { /* no-op */ }
+    usersApi.saveModelPreferences({ vlm_model: model }).catch(() => {})
   }
 
   async function handleLogout() {
@@ -287,7 +339,7 @@ export default function Sidebar() {
       {/* Configurazione */}
       <div className="border-t pt-3 px-3 pb-1">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+          <p className="text-xs font-semibold text-muted-foreground tracking-wide">
             {t("config.title")}
           </p>
           <button
@@ -375,7 +427,7 @@ export default function Sidebar() {
 
         {/* OpenAI API Key section */}
         <div className="mt-3 pt-3 border-t">
-          <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+          <label className="block text-xs font-semibold text-muted-foreground tracking-wide mb-1">
             {t("config.openai_key_label")}
           </label>
           {openaiKeyConfigured && !showKeyInput ? (
@@ -386,6 +438,13 @@ export default function Sidebar() {
                 onClick={() => setShowKeyInput(true)}
               >
                 {t("config.openai_key_change")}
+              </button>
+              <button
+                className="text-xs text-destructive hover:opacity-70 transition-opacity ml-auto"
+                onClick={handleDeleteKey}
+                title={t("config.openai_key_remove")}
+              >
+                <Trash2 className="h-3 w-3" />
               </button>
             </div>
           ) : !showKeyInput ? (

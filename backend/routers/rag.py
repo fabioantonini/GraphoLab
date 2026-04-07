@@ -11,13 +11,14 @@ Endpoints:
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from backend.auth.dependencies import get_current_user
 from backend.config import settings
 from backend.models.user import User
+from backend.routers._deps import set_openai_context
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 
@@ -32,9 +33,6 @@ class ChatRequest(BaseModel):
 class ModelSelect(BaseModel):
     model: str
 
-
-class OpenAIKeyPayload(BaseModel):
-    api_key: str
 
 
 class DocInfo(BaseModel):
@@ -107,25 +105,9 @@ async def rag_status(_: User = Depends(get_current_user)) -> dict:
 
 @router.get("/openai-key")
 async def get_openai_key_status(_: User = Depends(get_current_user)) -> dict:
+    """Return whether a global OpenAI key is available via environment variable."""
     from core.providers import openai_key_configured
     return {"configured": openai_key_configured()}
-
-
-@router.put("/openai-key")
-async def set_openai_key(
-    body: OpenAIKeyPayload,
-    _: User = Depends(get_current_user),
-) -> dict:
-    from core.providers import validate_openai_key, persist_openai_key, invalidate_openai_client
-    try:
-        valid = validate_openai_key(body.api_key)
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    if not valid:
-        raise HTTPException(status_code=400, detail="Chiave OpenAI non valida o non autorizzata")
-    persist_openai_key(body.api_key)
-    invalidate_openai_client()
-    return {"ok": True}
 
 
 @router.get("/embed-model")
@@ -186,6 +168,7 @@ async def remove_doc(
 async def chat(
     body: ChatRequest,
     _: User = Depends(get_current_user),
+    _ctx: None = Depends(set_openai_context),
 ) -> StreamingResponse:
     """Server-Sent Events stream of the RAG response."""
     import json as _json

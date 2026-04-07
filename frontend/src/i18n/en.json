@@ -174,7 +174,8 @@
     "openai_key_add": "Add key",
     "openai_key_missing": "Not configured — add a key to enable OpenAI models",
     "openai_key_saved": "API key saved",
-    "openai_key_error": "Invalid or unauthorized API key"
+    "openai_key_error": "Invalid or unauthorized API key",
+    "openai_key_remove": "Remove key"
   },
   "compliance": {
     "title": "ENFSI Compliance",

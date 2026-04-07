@@ -128,6 +128,23 @@ export const usersApi = {
   updateMe: (data: { full_name?: string; current_password?: string; new_password?: string }) =>
     api.put<User>("/users/me", data),
   deactivate: (id: number) => api.delete(`/users/${id}`),
+  // Per-user settings (OpenAI key + model preferences stored in DB)
+  getSettings: () => api.get<{
+    openai_key_configured: boolean
+    rag_model: string | null
+    vlm_model: string | null
+    ocr_model: string | null
+    embed_model: string | null
+  }>("/users/me/settings"),
+  saveOpenAIKey: (openai_api_key: string) =>
+    api.put<{ openai_key_configured: boolean }>("/users/me/settings", { openai_api_key }),
+  deleteOpenAIKey: () => api.delete("/users/me/settings/openai-key"),
+  saveModelPreferences: (prefs: {
+    rag_model?: string
+    vlm_model?: string
+    ocr_model?: string
+    embed_model?: string
+  }) => api.patch("/users/me/settings/models", prefs),
 }
 
 // Projects
@@ -273,7 +290,6 @@ export const ragApi = {
   getVlmModel: () => api.get<{ vlm_model: string }>("/rag/vlm-model"),
   setVlmModel: (model: string) => api.put<{ vlm_model: string; detail: string }>("/rag/vlm-model", { model }),
   getOpenAIKeyStatus: () => api.get<{ configured: boolean }>("/rag/openai-key"),
-  setOpenAIKey: (api_key: string) => api.put<{ ok: boolean }>("/rag/openai-key", { api_key }),
   getEmbedModel: () => api.get<{ embed_model: string }>("/rag/embed-model"),
   setEmbedModel: (model: string) => api.put<{ embed_model: string; detail: string }>("/rag/embed-model", { model }),
   listDocs: () => api.get<{ filename: string; chunks: number }[]>("/rag/docs"),

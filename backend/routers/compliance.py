@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from backend.auth.dependencies import get_current_user
 from backend.models.user import User
+from backend.routers._deps import set_openai_context
 
 router = APIRouter(prefix="/compliance", tags=["compliance"])
 
@@ -55,6 +56,7 @@ async def compliance_status(_: User = Depends(get_current_user)) -> dict:
 async def compliance_check(
     file: UploadFile = File(...),
     _: User = Depends(get_current_user),
+    _ctx: None = Depends(set_openai_context),
 ) -> StreamingResponse:
     """
     Accept a PDF perizia, extract its text, then stream the ENFSI compliance

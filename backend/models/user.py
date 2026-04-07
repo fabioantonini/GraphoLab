@@ -56,3 +56,6 @@ class User(Base):
     )
 
     projects: Mapped[list] = relationship("Project", back_populates="owner")
+    settings: Mapped["UserSettings | None"] = relationship(  # type: ignore[name-defined]
+        "UserSettings", back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )

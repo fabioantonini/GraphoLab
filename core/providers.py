@@ -4,11 +4,22 @@ GraphoLab — Provider abstraction layer.
 Centralises detection of LLM/VLM/Embedding provider (Ollama vs OpenAI) and
 exposes a ready-made OpenAI client.  All core modules import from here instead
 of hard-coding Ollama assumptions.
+
+Per-request API key propagation
+────────────────────────────────
+FastAPI routers set `set_request_api_key(key)` at the start of each request
+via a dependency.  `get_openai_client()` picks it up automatically through a
+`contextvars.ContextVar`, so core modules need no signature changes.
+
+Priority order:
+  1. Per-request key (from user's UserSettings row, decrypted)
+  2. Global key from `OPENAI_API_KEY` env var (Docker / host env — never written to file)
 """
 
 from __future__ import annotations
 
-from pathlib import Path
+import os
+from contextvars import ContextVar
 from typing import Optional
 
 # ── Model catalogues ──────────────────────────────────────────────────────────
@@ -28,8 +39,6 @@ EMBED_DIMS: dict[str, int] = {
     "nomic-embed-text":        768,
 }
 
-_ENV_FILE = Path(__file__).parent.parent / ".env"
-
 # ── Provider detection ────────────────────────────────────────────────────────
 
 def is_openai_model(model_name: str) -> bool:
@@ -41,91 +50,119 @@ def embed_dim_for(model: str) -> int:
     """Return the embedding vector dimension for *model*."""
     return EMBED_DIMS.get(model, 768)
 
+
+# ── Per-request API key (ContextVar) ─────────────────────────────────────────
+
+_request_api_key: ContextVar[str | None] = ContextVar("_request_api_key", default=None)
+
+
+def set_request_api_key(key: str | None) -> None:
+    """Set the OpenAI API key for the current async request context."""
+    _request_api_key.set(key)
+
+
 # ── API key management ────────────────────────────────────────────────────────
 
 def _read_openai_key() -> str:
-    """Return the OpenAI API key from env or .env file, empty string if absent."""
-    import os
-    val = os.environ.get("OPENAI_API_KEY", "").strip()
-    if val:
-        return val
-    try:
-        if _ENV_FILE.exists():
-            for line in _ENV_FILE.read_text(encoding="utf-8").splitlines():
-                if line.startswith("OPENAI_API_KEY="):
-                    v = line.split("=", 1)[1].strip()
-                    if v:
-                        return v
-    except Exception:
-        pass
-    return ""
+    """Return the global OpenAI API key from the environment only.
+
+    The global key is set via the OPENAI_API_KEY environment variable
+    (Docker, host shell, or CI). It is NEVER written to or read from a file —
+    per-user keys are stored encrypted in the database.
+    """
+    return os.environ.get("OPENAI_API_KEY", "").strip()
 
 
 def openai_key_configured() -> bool:
-    """Return True if a non-empty OpenAI API key is available."""
+    """Return True if a global OpenAI API key is available in the environment."""
     return bool(_read_openai_key())
 
 
-def persist_openai_key(key: str) -> None:
-    """Write (or update) OPENAI_API_KEY=<key> in the .env file."""
-    _write_env_key("OPENAI_API_KEY", key)
+# ── Encryption helpers (Fernet) ───────────────────────────────────────────────
 
-
-def _write_env_key(env_key: str, value: str) -> None:
-    """Update or append *env_key*=*value* in the .env file."""
+def _get_fernet():
+    """Return a Fernet instance using SETTINGS_ENCRYPTION_KEY, or None if not configured."""
     try:
-        if _ENV_FILE.exists():
-            lines = _ENV_FILE.read_text(encoding="utf-8").splitlines(keepends=True)
-            new_lines: list[str] = []
-            found = False
-            for line in lines:
-                if line.startswith(f"{env_key}="):
-                    new_lines.append(f"{env_key}={value}\n")
-                    found = True
-                else:
-                    new_lines.append(line)
-            if not found:
-                # ensure trailing newline before appending
-                if new_lines and not new_lines[-1].endswith("\n"):
-                    new_lines[-1] += "\n"
-                new_lines.append(f"{env_key}={value}\n")
-            _ENV_FILE.write_text("".join(new_lines), encoding="utf-8")
-        else:
-            _ENV_FILE.write_text(f"{env_key}={value}\n", encoding="utf-8")
+        from backend.config import settings
+        key = settings.settings_encryption_key.strip()
     except Exception:
-        pass
+        key = os.environ.get("SETTINGS_ENCRYPTION_KEY", "").strip()
+    if not key:
+        return None
+    try:
+        from cryptography.fernet import Fernet
+        return Fernet(key.encode() if isinstance(key, str) else key)
+    except Exception:
+        return None
+
+
+def encrypt_key(plain: str) -> str:
+    """Encrypt *plain* with Fernet.  Returns plain-text if no encryption key is configured."""
+    f = _get_fernet()
+    if f is None:
+        return plain
+    return f.encrypt(plain.encode()).decode()
+
+
+def decrypt_key(enc: str) -> str:
+    """Decrypt *enc* with Fernet.  Returns *enc* as-is if no encryption key is configured."""
+    f = _get_fernet()
+    if f is None:
+        return enc
+    try:
+        return f.decrypt(enc.encode()).decode()
+    except Exception:
+        # Fallback: may be a plain-text key stored before encryption was enabled
+        return enc
 
 
 # ── OpenAI client ─────────────────────────────────────────────────────────────
 
 _openai_client: Optional[object] = None
+_openai_client_key: str = ""  # key used to build the cached client
 
 
 def get_openai_client():
     """
-    Return a cached ``openai.OpenAI`` client instance.
+    Return an ``openai.OpenAI`` client.
 
-    Raises ``RuntimeError`` if no API key is configured.
-    The ``openai`` package is imported lazily so the app boots without it.
+    Key resolution order:
+      1. Per-request ContextVar (user's decrypted key, set by FastAPI dependency)
+      2. Global ``OPENAI_API_KEY`` env var
+
+    A new client is created whenever the resolved key changes so stale
+    credentials are never reused.
+
+    Raises ``RuntimeError`` if no API key is available.
     """
-    global _openai_client
-    key = _read_openai_key()
+    global _openai_client, _openai_client_key
+
+    key = _request_api_key.get() or _read_openai_key()
     if not key:
         raise RuntimeError(
             "OPENAI_API_KEY non configurata. "
             "Inserisci la chiave nella sezione Configurazione."
         )
-    # Re-create the client only if the key changed (e.g. after persist_openai_key)
-    if _openai_client is None or getattr(_openai_client, "api_key", None) != key:
-        from openai import OpenAI  # lazy import
+
+    # If the per-request ContextVar is set we always create a fresh client
+    # (different users have different keys; caching across requests is unsafe).
+    if _request_api_key.get():
+        from openai import OpenAI
+        return OpenAI(api_key=key)
+
+    # Global key: cache to avoid re-creating on every call
+    if _openai_client is None or _openai_client_key != key:
+        from openai import OpenAI
         _openai_client = OpenAI(api_key=key)
+        _openai_client_key = key
     return _openai_client
 
 
 def invalidate_openai_client() -> None:
-    """Force re-creation of the cached client (call after key change)."""
-    global _openai_client
+    """Force re-creation of the cached global client (call after env key change)."""
+    global _openai_client, _openai_client_key
     _openai_client = None
+    _openai_client_key = ""
 
 
 def validate_openai_key(key: str) -> bool:

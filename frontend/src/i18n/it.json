@@ -174,7 +174,8 @@
     "openai_key_add": "Aggiungi chiave",
     "openai_key_missing": "Non configurata — aggiungi una chiave per abilitare i modelli OpenAI",
     "openai_key_saved": "Chiave API salvata",
-    "openai_key_error": "Chiave API non valida o non autorizzata"
+    "openai_key_error": "Chiave API non valida o non autorizzata",
+    "openai_key_remove": "Rimuovi chiave"
   },
   "compliance": {
     "title": "Conformità ENFSI",
