@@ -26,7 +26,9 @@ warnings.filterwarnings("ignore")
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
+import base64 as _base64
 import io
+import re as _re
 import tempfile as _tempfile
 import threading as _threading
 from datetime import datetime as _datetime
@@ -928,6 +930,19 @@ with gr.Blocks() as agent_tab:
     for _btn, _text in _prompt_btns:
         _btn.click(fn=lambda t=_text: t, outputs=agent_input)
 
+    _api_img_re = _re.compile(r'!\[(.*?)\]\(/api/agent/images/([^\)]+)\)')
+
+    def _fix_agent_image_urls(text: str) -> str:
+        """Replace /api/agent/images/<name> URLs with base64 data URIs for Gradio rendering."""
+        def _to_b64(m):
+            alt, fname = m.group(1), m.group(2)
+            fpath = ROOT / "data" / "uploads" / "agent" / "images" / fname
+            if fpath.exists():
+                b64 = _base64.b64encode(fpath.read_bytes()).decode()
+                return f"![{alt}](data:image/png;base64,{b64})"
+            return m.group(0)
+        return _api_img_re.sub(_to_b64, text)
+
     def _agent_respond(message, history, files):
         """Gradio generator: yield (input_clear, updated_history) on each stream event.
 
@@ -957,7 +972,7 @@ with gr.Blocks() as agent_tab:
         updated_history = list(history or []) + [[message, None]]
 
         for text in agent_stream(message, file_paths, agent_history):
-            updated_history[-1] = [message, text]
+            updated_history[-1] = [message, _fix_agent_image_urls(text)]
             yield "", updated_history
 
     _send_event = agent_send_btn.click(
