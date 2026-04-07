@@ -11,7 +11,9 @@
     "compliance": "Conformità ENFSI",
     "admin": "Amministrazione",
     "profile": "Profilo",
-    "logout": "Esci"
+    "logout": "Esci",
+    "settings": "Impostazioni",
+    "help": "Guida"
   },
   "auth": {
     "login": "Accedi",

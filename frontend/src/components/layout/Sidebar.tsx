@@ -1,10 +1,12 @@
 import { NavLink, useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
-import { FolderOpen, MessageSquare, Users, Microscope, LogOut, Globe, ClipboardCheck, RefreshCw, Bot, Plus, ChevronDown, ChevronRight, Check, Trash2 } from "lucide-react"
+import { FolderOpen, MessageSquare, Users, Microscope, LogOut, Globe, ClipboardCheck, Bot, Plus, ChevronDown, ChevronRight, Settings, HelpCircle, ChevronsUpDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth"
 import { authApi, ragApi, usersApi, agentProjectsApi, type AgentProject } from "@/lib/api"
 import { Button } from "@/components/ui/button"
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
+import SettingsDialog from "@/components/settings/SettingsDialog"
 import i18n from "@/i18n"
 import { useState, useEffect } from "react"
 
@@ -18,6 +20,16 @@ const links = [
 const adminLinks = [
   { to: "/admin/users", label: "nav.admin", icon: Users },
 ]
+
+function getInitials(name: string | undefined): string {
+  if (!name) return "?"
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(w => w[0].toUpperCase())
+    .join("")
+}
 
 export default function Sidebar() {
   const { t } = useTranslation()
@@ -46,7 +58,8 @@ export default function Sidebar() {
   const [savingKey, setSavingKey] = useState(false)
   const [keyError, setKeyError] = useState("")
 
-  const OCR_MODELS = ["easyocr", "vlm", "paddleocr", "trocr"]
+  // Settings dialog
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   async function loadModels() {
     setRefreshing(true)
@@ -70,14 +83,10 @@ export default function Sidebar() {
     loadModels()
     agentProjectsApi.listProjects().then(r => setAgentProjects(r.data)).catch(() => {})
 
-    // Restore per-user settings (model preferences + OpenAI key status) from DB.
-    // If the user has saved preferences, apply them to the backend global state so
-    // all subsequent requests use the correct model.
     usersApi.getSettings().then(async r => {
       const s = r.data
       setOpenaiKeyConfigured(s.openai_key_configured)
 
-      // Restore saved models — fall back to current server state if not saved yet
       if (s.rag_model) {
         setCurrentModel(s.rag_model)
         await ragApi.setModel(s.rag_model).catch(() => {})
@@ -106,7 +115,6 @@ export default function Sidebar() {
         ragApi.getEmbedModel().then(r2 => setCurrentEmbedModel(r2.data.embed_model)).catch(() => {})
       }
     }).catch(() => {
-      // Fallback: read current server state directly
       ragApi.getModel().then(r => setCurrentModel(r.data.model)).catch(() => {})
       ragApi.getOcrModel().then(r => setCurrentOcrModel(r.data.ocr_model)).catch(() => {})
       ragApi.getVlmModel().then(r => setCurrentVlmModel(r.data.vlm_model)).catch(() => {})
@@ -194,6 +202,8 @@ export default function Sidebar() {
     i18n.changeLanguage(i18n.language === "it" ? "en" : "it")
   }
 
+  const initials = getInitials(user?.full_name)
+
   return (
     <aside className="flex flex-col w-56 min-h-screen bg-card border-r px-3 py-4 gap-1">
       {/* Logo */}
@@ -239,7 +249,7 @@ export default function Sidebar() {
           {t("nav.agent")}
         </NavLink>
 
-        {/* Agent projects sub-section — directly under Agente Documentale */}
+        {/* Agent projects sub-section */}
         <div className="pt-1">
           <button
             onClick={() => setAgentExpanded(v => !v)}
@@ -336,166 +346,66 @@ export default function Sidebar() {
         )}
       </nav>
 
-      {/* Configurazione */}
-      <div className="border-t pt-3 px-3 pb-1">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-xs font-semibold text-muted-foreground tracking-wide">
-            {t("config.title")}
-          </p>
-          <button
-            onClick={loadModels}
-            disabled={refreshing}
-            title={t("config.refresh")}
-            className="text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
-          >
-            <RefreshCw className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`} />
-          </button>
-        </div>
-        <label className="block text-xs text-muted-foreground mb-1">{t("config.model_label")}</label>
-        {ollamaUp === false && openaiModels.llm.length === 0 ? (
-          <p className="text-xs text-destructive">{t("config.model_offline")}</p>
-        ) : models.length === 0 && openaiModels.llm.length === 0 ? (
-          <p className="text-xs text-muted-foreground">{t("config.model_loading")}</p>
-        ) : (
-          <select
-            value={currentModel}
-            onChange={handleModelChange}
-            className="w-full rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-          >
-            {models.length > 0 && (
-              <optgroup label="Ollama">
-                {models.map(m => <option key={m} value={m}>{m}</option>)}
-              </optgroup>
-            )}
-            {openaiModels.llm.length > 0 && (
-              <optgroup label="OpenAI">
-                {openaiModels.llm.map(m => <option key={m} value={m}>{m}</option>)}
-              </optgroup>
-            )}
-          </select>
-        )}
-        <label className="block text-xs text-muted-foreground mt-2 mb-1">{t("config.ocr_model_label")}</label>
-        <select
-          value={currentOcrModel}
-          onChange={handleOcrModelChange}
-          className="w-full rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-        >
-          {OCR_MODELS.map(m => (
-            <option key={m} value={m}>{m}</option>
-          ))}
-        </select>
-        <label className="block text-xs text-muted-foreground mt-2 mb-1">{t("config.vlm_model_label")}</label>
-        {models.length === 0 && openaiModels.vlm.length === 0 ? (
-          <p className="text-xs text-muted-foreground">{t("config.model_loading")}</p>
-        ) : (
-          <select
-            value={currentVlmModel}
-            onChange={handleVlmModelChange}
-            className="w-full rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-          >
-            {models.length > 0 && (
-              <optgroup label="Ollama">
-                {models.map(m => <option key={m} value={m}>{m}</option>)}
-              </optgroup>
-            )}
-            {openaiModels.vlm.length > 0 && (
-              <optgroup label="OpenAI">
-                {openaiModels.vlm.map(m => <option key={m} value={m}>{m}</option>)}
-              </optgroup>
-            )}
-          </select>
-        )}
+      {/* Footer — ChatGPT-style user menu */}
+      <div className="border-t pt-2 px-1">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="flex items-center gap-2.5 w-full rounded-md px-2 py-2 hover:bg-muted transition-colors">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-semibold">
+                {initials}
+              </span>
+              <span className="flex-1 text-left text-sm font-medium truncate">{user?.full_name}</span>
+              <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="top" align="start" className="w-52">
+            <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
+              <Settings className="mr-2 h-4 w-4" />
+              {t("nav.settings")}
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled>
+              <HelpCircle className="mr-2 h-4 w-4" />
+              {t("nav.help")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={toggleLang}>
+              <Globe className="mr-2 h-4 w-4" />
+              {i18n.language === "it" ? "English" : "Italiano"}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
+              <LogOut className="mr-2 h-4 w-4" />
+              {t("auth.logout")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-        {/* OpenAI Embedding model (visible only when OpenAI key is configured) */}
-        {openaiKeyConfigured && (
-          <>
-            <label className="block text-xs text-muted-foreground mt-2 mb-1">{t("config.embed_model_label")}</label>
-            <select
-              value={currentEmbedModel}
-              onChange={handleEmbedModelChange}
-              className="w-full rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-            >
-              <optgroup label="Ollama">
-                <option value="nomic-embed-text">nomic-embed-text</option>
-              </optgroup>
-              <optgroup label="OpenAI">
-                {openaiModels.embed.map(m => <option key={m} value={m}>{m}</option>)}
-              </optgroup>
-            </select>
-          </>
-        )}
-
-        {/* OpenAI API Key section */}
-        <div className="mt-3 pt-3 border-t">
-          <label className="block text-xs font-semibold text-muted-foreground tracking-wide mb-1">
-            {t("config.openai_key_label")}
-          </label>
-          {openaiKeyConfigured && !showKeyInput ? (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-green-600 dark:text-green-400">{t("config.openai_key_ok")}</span>
-              <button
-                className="text-xs text-muted-foreground underline"
-                onClick={() => setShowKeyInput(true)}
-              >
-                {t("config.openai_key_change")}
-              </button>
-              <button
-                className="text-xs text-destructive hover:opacity-70 transition-opacity ml-auto"
-                onClick={handleDeleteKey}
-                title={t("config.openai_key_remove")}
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
-            </div>
-          ) : !showKeyInput ? (
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">{t("config.openai_key_missing")}</p>
-              <button
-                className="text-xs text-primary underline"
-                onClick={() => setShowKeyInput(true)}
-              >
-                {t("config.openai_key_add")}
-              </button>
-            </div>
-          ) : null}
-          {showKeyInput && (
-            <form onSubmit={handleSaveKey} className="flex gap-1 mt-1">
-              <input
-                type="password"
-                value={keyDraft}
-                onChange={e => { setKeyDraft(e.target.value); setKeyError("") }}
-                placeholder="sk-…"
-                className="flex-1 min-w-0 rounded border bg-background px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-              />
-              <Button
-                type="submit"
-                size="icon"
-                className="h-6 w-6 shrink-0"
-                disabled={savingKey || !keyDraft.trim()}
-              >
-                <Check className="h-3 w-3" />
-              </Button>
-            </form>
-          )}
-          {keyError && <p className="text-xs text-destructive mt-1">{keyError}</p>}
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div className="space-y-1 border-t pt-3">
-        <div className="px-3 py-1.5 text-xs text-muted-foreground truncate">
-          {user?.full_name}
-          <br />
-          <span className="opacity-70">{user?.email}</span>
-        </div>
-        <Button variant="ghost" size="sm" className="w-full justify-start gap-2 text-muted-foreground" onClick={toggleLang}>
-          <Globe className="h-4 w-4" />
-          {i18n.language === "it" ? "English" : "Italiano"}
-        </Button>
-        <Button variant="ghost" size="sm" className="w-full justify-start gap-2 text-muted-foreground" onClick={handleLogout}>
-          <LogOut className="h-4 w-4" />
-          {t("auth.logout")}
-        </Button>
+        <SettingsDialog
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          models={models}
+          ollamaUp={ollamaUp}
+          refreshing={refreshing}
+          onRefresh={loadModels}
+          openaiModels={openaiModels}
+          currentModel={currentModel}
+          onModelChange={handleModelChange}
+          currentOcrModel={currentOcrModel}
+          onOcrModelChange={handleOcrModelChange}
+          currentVlmModel={currentVlmModel}
+          onVlmModelChange={handleVlmModelChange}
+          openaiKeyConfigured={openaiKeyConfigured}
+          currentEmbedModel={currentEmbedModel}
+          onEmbedModelChange={handleEmbedModelChange}
+          showKeyInput={showKeyInput}
+          setShowKeyInput={setShowKeyInput}
+          keyDraft={keyDraft}
+          setKeyDraft={setKeyDraft}
+          savingKey={savingKey}
+          keyError={keyError}
+          onSaveKey={handleSaveKey}
+          onDeleteKey={handleDeleteKey}
+        />
       </div>
     </aside>
   )

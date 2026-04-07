@@ -11,7 +11,9 @@
     "compliance": "ENFSI Compliance",
     "admin": "Administration",
     "profile": "Profile",
-    "logout": "Sign out"
+    "logout": "Sign out",
+    "settings": "Settings",
+    "help": "Help"
   },
   "auth": {
     "login": "Sign in",
