@@ -283,8 +283,11 @@ def set_embed_model(model_name: str) -> str:
 
     if old_is_openai != new_is_openai:
         # Provider changed — dimensions differ, cache is invalid
-        from backend.config import settings
-        cache_dir: Path = settings.rag_cache_dir
+        try:
+            from backend.config import settings
+            cache_dir: Path = settings.rag_cache_dir
+        except Exception:
+            cache_dir = Path(__file__).parent.parent / "data" / "rag_cache"
         deleted = 0
         if cache_dir.exists():
             for f in cache_dir.glob("*.npz"):

@@ -60,7 +60,10 @@ WRITER_SAMPLES_DIR = ROOT / "data" / "samples"
 WRITER_EXAMPLES_DIR = WRITER_SAMPLES_DIR / "writer_examples"
 RAG_CACHE_DIR = ROOT / "data" / "rag_cache"
 
+from core.providers import openai_key_configured, invalidate_openai_client, is_openai_model
 _OLLAMA_AVAILABLE = check_ollama()
+_LLM_AVAILABLE = _OLLAMA_AVAILABLE or openai_key_configured()
+_OPENAI_MODELS = ["gpt-5.4-mini", "gpt-5.4", "gpt-5.4-nano"]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Tab 1 — Handwritten OCR
@@ -582,6 +585,23 @@ def rag_chat(message: str, history: list):
         yield new_history
 
 
+def _apply_openai_key(key: str) -> str:
+    """Set OpenAI API key in the process environment and switch RAG/embed models to OpenAI.
+
+    Returns a status message string.
+    """
+    key = key.strip()
+    if not key:
+        return "⚠️ Chiave vuota — inserisci una chiave valida (es. sk-...)."
+    os.environ["OPENAI_API_KEY"] = key
+    invalidate_openai_client()
+    from core.rag import set_rag_model, _embed_model, set_embed_model
+    set_rag_model("gpt-5.4-mini")
+    if not is_openai_model(_embed_model):
+        set_embed_model("text-embedding-3-small")
+    return "✅ Chiave salvata. Modello: **gpt-5.4-mini** · Embedding: **text-embedding-3-small**"
+
+
 def _rag_add_docs_wrapper(files):
     return rag_add_docs(files, RAG_CACHE_DIR)
 
@@ -614,23 +634,32 @@ with gr.Blocks() as rag_tab:
     gr.Markdown(
         "## Consulente Forense IA\n"
         "Fai domande sulla grafologia forense. Il sistema recupera gli estratti più "
-        "rilevanti dalla knowledge base e genera una risposta in italiano con un "
-        "**modello Ollama locale** (nessun dato inviato online)."
+        "rilevanti dalla knowledge base e genera una risposta in italiano.\n\n"
+        "Funziona con **Ollama locale** (nessun dato inviato online) oppure con "
+        "**OpenAI** inserendo la tua chiave nell'accordion qui sotto."
     )
 
-    if not _OLLAMA_AVAILABLE:
-        gr.Markdown(
-            "> ⚠️ **Funzionalità non disponibile in questa demo pubblica.**\n>\n"
-            "> Il Consulente Forense IA richiede **Ollama** in esecuzione localmente (`ollama serve`).\n"
-            "> Su Hugging Face Spaces non è possibile eseguire un server LLM locale.\n>\n"
-            "> Per usare questa funzionalità, clona il repository ed eseguilo sul tuo computer:\n"
-            "> ```\n"
-            "> git clone https://github.com/fabioantonini/GraphoLab\n"
-            "> ollama pull llama3.2\n"
-            "> ollama serve\n"
-            "> python app/grapholab_demo.py\n"
-            "> ```"
+    with gr.Accordion("⚙️ Configurazione LLM", open=not _LLM_AVAILABLE):
+        if _OLLAMA_AVAILABLE:
+            gr.Markdown("✅ **Ollama disponibile** — i modelli locali sono in uso.")
+        else:
+            gr.Markdown(
+                "Ollama non rilevato. Inserisci la tua chiave OpenAI per abilitare "
+                "il Consulente Forense IA su questa demo.\n\n"
+                "*La chiave viene usata solo per questa sessione e non viene salvata su disco.*"
+            )
+        rag_openai_key = gr.Textbox(
+            label="Chiave OpenAI (sk-...)",
+            type="password",
+            placeholder="sk-...",
+            visible=not _OLLAMA_AVAILABLE,
         )
+        rag_openai_save_btn = gr.Button(
+            "Salva chiave e abilita",
+            variant="secondary",
+            visible=not _OLLAMA_AVAILABLE,
+        )
+        rag_openai_status = gr.Markdown(visible=not _OLLAMA_AVAILABLE)
 
     with gr.Accordion("📂 Gestione knowledge base", open=False):
         gr.Markdown(
@@ -643,7 +672,7 @@ with gr.Blocks() as rag_tab:
             file_count="multiple",
             file_types=[".pdf", ".docx", ".doc"],
         )
-        rag_upload_btn = gr.Button("Indicizza documenti", variant="secondary", interactive=_OLLAMA_AVAILABLE)
+        rag_upload_btn = gr.Button("Indicizza documenti", variant="secondary", interactive=_LLM_AVAILABLE)
         rag_upload_status = gr.Markdown(label="Esito indicizzazione")
 
         gr.Markdown("### Documenti indicizzati")
@@ -682,11 +711,19 @@ with gr.Blocks() as rag_tab:
             outputs=rag_remove_dd,
         )
 
+    _rag_initial_choices = (
+        (_OPENAI_MODELS if openai_key_configured() else []) +
+        (ollama_list_models() if _OLLAMA_AVAILABLE else [])
+    ) or _OPENAI_MODELS
+    _rag_initial_value = (
+        "gpt-5.4-mini" if openai_key_configured()
+        else (ollama_list_models()[0] if _OLLAMA_AVAILABLE else "gpt-5.4-mini")
+    )
     with gr.Row():
         rag_model_dd = gr.Dropdown(
-            label="Modello di generazione (Ollama)",
-            choices=ollama_list_models(),
-            value="llama3.2",
+            label="Modello di generazione",
+            choices=_rag_initial_choices,
+            value=_rag_initial_value,
             interactive=True,
             scale=3,
         )
@@ -702,15 +739,15 @@ with gr.Blocks() as rag_tab:
     rag_in = gr.Textbox(
         placeholder=(
             "Es: Come si valuta l'inclinazione della scrittura? (Invio per inviare)"
-            if _OLLAMA_AVAILABLE
-            else "⚠️ Non disponibile su HF Spaces — esegui localmente con Ollama"
+            if _LLM_AVAILABLE
+            else "⚠️ Inserisci la chiave OpenAI nell'accordion ⚙️ qui sopra per abilitare"
         ),
         lines=1,
         show_label=False,
-        interactive=_OLLAMA_AVAILABLE,
+        interactive=_LLM_AVAILABLE,
     )
     with gr.Row():
-        rag_btn = gr.Button("Invia", variant="primary", interactive=_OLLAMA_AVAILABLE)
+        rag_btn = gr.Button("Invia", variant="primary", interactive=_LLM_AVAILABLE)
         rag_clear_btn = gr.Button("🗑️ Cancella", variant="secondary")
         rag_save_btn = gr.Button("💾 Salva conversazione", variant="secondary")
     rag_download = gr.File(label="Download conversazione", visible=False)
@@ -729,15 +766,39 @@ with gr.Blocks() as rag_tab:
         for updated_history in rag_chat(message, history):
             yield "", updated_history
 
+    def _rag_save_key(key):
+        msg = _apply_openai_key(key)
+        ok = "✅" in msg
+        new_choices = _OPENAI_MODELS + (ollama_list_models() if _OLLAMA_AVAILABLE else [])
+        return (
+            msg,
+            gr.update(interactive=ok, placeholder="Es: Come si valuta l'inclinazione della scrittura?"),
+            gr.update(interactive=ok),
+            gr.update(interactive=ok),
+            gr.update(choices=new_choices, value="gpt-5.4-mini") if ok else gr.update(),
+        )
+
+    rag_openai_save_btn.click(
+        fn=_rag_save_key,
+        inputs=rag_openai_key,
+        outputs=[rag_openai_status, rag_in, rag_btn, rag_upload_btn, rag_model_dd],
+    )
+
     rag_model_dd.change(
         fn=lambda m: gr.update(value=set_rag_model(m), visible=True),
         inputs=rag_model_dd,
         outputs=rag_model_status,
     )
-    rag_model_refresh.click(
-        fn=lambda: gr.update(choices=ollama_list_models(), value="llama3.2"),
-        outputs=rag_model_dd,
-    )
+
+    def _rag_refresh_models():
+        choices = (
+            (_OPENAI_MODELS if openai_key_configured() else []) +
+            (ollama_list_models() if _OLLAMA_AVAILABLE else [])
+        ) or _OPENAI_MODELS
+        value = choices[0] if choices else "gpt-5.4-mini"
+        return gr.update(choices=choices, value=value)
+
+    rag_model_refresh.click(fn=_rag_refresh_models, outputs=rag_model_dd)
 
     rag_btn.click(_respond, inputs=[rag_in, rag_chatbot], outputs=[rag_in, rag_chatbot])
     rag_in.submit(_respond, inputs=[rag_in, rag_chatbot], outputs=[rag_in, rag_chatbot])
@@ -747,14 +808,19 @@ with gr.Blocks() as rag_tab:
     )
     rag_save_btn.click(fn=save_conversation_md, inputs=rag_chatbot, outputs=rag_download)
 
-    rag_tab.load(
-        fn=lambda: (
+    def _rag_tab_load():
+        choices = (
+            (_OPENAI_MODELS if openai_key_configured() else []) +
+            (ollama_list_models() if _OLLAMA_AVAILABLE else [])
+        ) or _OPENAI_MODELS
+        value = choices[0] if choices else "gpt-5.4-mini"
+        return (
             gr.update(value=_rag_doc_list()),
             gr.update(choices=_rag_doc_choices()),
-            gr.update(choices=ollama_list_models(), value="llama3.2"),
-        ),
-        outputs=[rag_doc_table, rag_remove_dd, rag_model_dd],
-    )
+            gr.update(choices=choices, value=value),
+        )
+
+    rag_tab.load(fn=_rag_tab_load, outputs=[rag_doc_table, rag_remove_dd, rag_model_dd])
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Tab 11 — Agente Documentale
@@ -767,21 +833,30 @@ with gr.Blocks() as agent_tab:
         "quali strumenti GraphoLab usare: trascrizione, NER, rilevamento firma, verifica firma, "
         "grafologia, identificazione scrittore, layout, datazione e molto altro.\n\n"
         "Allega uno o più file (immagini o PDF) e scrivi la tua richiesta.\n\n"
-        "*Motore: LangGraph + qwen3-vl:8b (Ollama locale)*"
+        "*Motore: LangGraph + Ollama locale oppure OpenAI (configura la chiave qui sotto)*"
     )
 
-    if not _OLLAMA_AVAILABLE:
-        gr.Markdown(
-            "> ⚠️ **Funzionalità non disponibile in questa demo pubblica.**\n>\n"
-            "> L'Agente Documentale richiede **Ollama** in esecuzione localmente (`ollama serve`) "
-            "con il modello **qwen3-vl:8b** scaricato (`ollama pull qwen3-vl:8b`).\n>\n"
-            "> Per usare questa funzionalità, esegui GraphoLab localmente:\n"
-            "> ```\n"
-            "> ollama pull qwen3-vl:8b\n"
-            "> ollama serve\n"
-            "> python app/grapholab_demo.py\n"
-            "> ```"
+    with gr.Accordion("⚙️ Configurazione LLM", open=not _LLM_AVAILABLE):
+        if _OLLAMA_AVAILABLE:
+            gr.Markdown("✅ **Ollama disponibile** — i modelli locali sono in uso.")
+        else:
+            gr.Markdown(
+                "Ollama non rilevato. Inserisci la tua chiave OpenAI per abilitare "
+                "l'Agente Documentale su questa demo.\n\n"
+                "*La chiave viene usata solo per questa sessione e non viene salvata su disco.*"
+            )
+        agent_openai_key = gr.Textbox(
+            label="Chiave OpenAI (sk-...)",
+            type="password",
+            placeholder="sk-...",
+            visible=not _OLLAMA_AVAILABLE,
         )
+        agent_openai_save_btn = gr.Button(
+            "Salva chiave e abilita",
+            variant="secondary",
+            visible=not _OLLAMA_AVAILABLE,
+        )
+        agent_openai_status = gr.Markdown(visible=not _OLLAMA_AVAILABLE)
 
     # Suggested prompt buttons
     gr.Markdown("### Prompt suggeriti")
@@ -792,7 +867,7 @@ with gr.Blocks() as agent_tab:
                 _p["label"],
                 variant="secondary",
                 size="sm",
-                interactive=_OLLAMA_AVAILABLE,
+                interactive=_LLM_AVAILABLE,
             )
             _prompt_btns.append((_btn, _p["text"]))
 
@@ -806,16 +881,16 @@ with gr.Blocks() as agent_tab:
             agent_input = gr.Textbox(
                 placeholder=(
                     "Es: Trascrivi il testo e cerca le persone nominate (Invio per inviare)"
-                    if _OLLAMA_AVAILABLE
-                    else "⚠️ Non disponibile — esegui localmente con Ollama + qwen3"
+                    if _LLM_AVAILABLE
+                    else "⚠️ Inserisci la chiave OpenAI nell'accordion ⚙️ qui sopra per abilitare"
                 ),
                 lines=2,
                 show_label=False,
-                interactive=_OLLAMA_AVAILABLE,
+                interactive=_LLM_AVAILABLE,
             )
             with gr.Row():
                 agent_send_btn = gr.Button(
-                    "Invia", variant="primary", interactive=_OLLAMA_AVAILABLE
+                    "Invia", variant="primary", interactive=_LLM_AVAILABLE
                 )
                 agent_stop_btn = gr.Button("⏹ Stop", variant="stop")
                 agent_clear_btn = gr.Button("🗑️ Cancella", variant="secondary")
@@ -825,8 +900,29 @@ with gr.Blocks() as agent_tab:
                 label="File allegati (immagini, PDF)",
                 file_count="multiple",
                 file_types=["image", ".pdf"],
-                interactive=_OLLAMA_AVAILABLE,
+                interactive=_LLM_AVAILABLE,
             )
+
+    def _agent_save_key(key):
+        msg = _apply_openai_key(key)
+        ok = "✅" in msg
+        _prompt_updates = [gr.update(interactive=ok)] * len(_prompt_btns)
+        return (
+            [msg,
+             gr.update(interactive=ok, placeholder="Es: Trascrivi il testo e cerca le persone nominate"),
+             gr.update(interactive=ok),
+             gr.update(interactive=ok)]
+            + _prompt_updates
+        )
+
+    agent_openai_save_btn.click(
+        fn=_agent_save_key,
+        inputs=agent_openai_key,
+        outputs=(
+            [agent_openai_status, agent_input, agent_send_btn, agent_files]
+            + [btn for btn, _ in _prompt_btns]
+        ),
+    )
 
     # Wire prompt buttons: each button fills the input text
     for _btn, _text in _prompt_btns:
