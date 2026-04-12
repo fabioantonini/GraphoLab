@@ -57,3 +57,6 @@ openai>=2.0.0
 # CPU build: paddlepaddle; GPU build: paddlepaddle-gpu
 paddlepaddle>=2.6.0
 paddleocr>=2.8.0
+
+# Landing.ai Agentic Document Extraction (Estrazione Strutturata tab)
+landingai-ade>=0.1.0

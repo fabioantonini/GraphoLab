@@ -81,6 +81,10 @@ SUGGESTED_PROMPTS = [
      )},
     {"label": "Conformità ENFSI",
      "text": "Verifica la conformità di questa perizia agli standard ENFSI BPM"},
+    {"label": "Estrai campi ENFSI",
+     "text": "Estrai i campi strutturati ENFSI da questa perizia (perito, date, metodi, conclusioni)"},
+    {"label": "Estrai dati documento",
+     "text": "Estrai i dati strutturati da questo documento (parti, firmatari, date, notaio)"},
 ]
 
 AGENT_TOOLS_NAMES = [
@@ -97,6 +101,7 @@ AGENT_TOOLS_NAMES = [
     "analizza_figura",
     "consulta_knowledge_base",
     "verifica_conformita_enfsi",
+    "estrai_struttura_ade",
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -494,6 +499,47 @@ def verifica_conformita_enfsi(pdf_path: str) -> str:
         return f"Errore nella verifica di conformità ENFSI: {e}"
 
 
+@tool
+def estrai_struttura_ade(file_path: str, schema_name: str = "Perizia Forense (ENFSI)") -> str:
+    """Estrae campi strutturati chiave/valore da un documento usando Landing.ai ADE.
+
+    Usa questo strumento quando l'utente vuole estrarre informazioni strutturate da un
+    documento forense, una perizia grafologica, un atto notarile o un documento con firma.
+    Restituisce un JSON con i campi trovati (nome → valore).
+
+    Schema disponibili:
+    - "Perizia Forense (ENFSI)": estrae i 20 campi ENFSI BPM (perito, date, metodi, conclusioni, ecc.)
+    - "Documento con Firma": estrae parti, firmatari, notaio, data e tipo documento
+    - "Atto Legale": estrae tipo atto, parti, importo, riferimenti normativi
+
+    Args:
+        file_path:   Percorso assoluto al documento (PDF, PNG, JPG, TIFF).
+        schema_name: Schema da usare per l'estrazione (vedi sopra).
+    """
+    import json as _json
+    try:
+        from core.docextract import ade_pipeline, SCHEMA_REGISTRY, ade_key_configured
+        if not ade_key_configured():
+            return (
+                "VISION_AGENT_API_KEY non configurata. "
+                "Aggiungi la chiave nel file .env per abilitare l'estrazione strutturata ADE."
+            )
+        schema_cls = SCHEMA_REGISTRY.get(schema_name, list(SCHEMA_REGISTRY.values())[0])
+        result = ade_pipeline(file_path, schema_cls)
+        if not result.ok:
+            return f"Errore ADE: {result.error}"
+        filled = {k: v for k, v in result.fields.items() if v is not None}
+        if not filled:
+            return "Nessun campo strutturato trovato nel documento con lo schema selezionato."
+        lines = [f"**Estrazione strutturata ADE** — schema: {schema_name}\n"]
+        for k, v in filled.items():
+            lines.append(f"- **{k}**: {v}")
+        lines.append(f"\n*{len(filled)}/{len(result.fields)} campi trovati*")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Errore nell'estrazione strutturata ADE: {e}"
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Tool list
 # ──────────────────────────────────────────────────────────────────────────────
@@ -512,6 +558,7 @@ _ALL_TOOLS = [
     analizza_figura,
     consulta_knowledge_base,
     verifica_conformita_enfsi,
+    estrai_struttura_ade,
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────

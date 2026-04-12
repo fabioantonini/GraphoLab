@@ -197,15 +197,31 @@ Rispondi SOLO in italiano. Inizia direttamente con REQ-01 senza preamboli.
 Fermati dopo REQ-{n:02d}. NON aggiungere riepilogo, tabelle o commenti finali."""
 
 
-def _build_user_prompt(perizia_text: str) -> str:
-    """User prompt: just the perizia text, clearly delimited."""
+def _build_user_prompt(perizia_text: str, ade_fields: dict | None = None) -> str:
+    """User prompt: perizia text + optional ADE pre-extracted fields."""
     max_chars = 24_000  # ~6 000 tokens — fits comfortably in 16 k ctx
     if len(perizia_text) > max_chars:
         perizia_text = perizia_text[:max_chars] + "\n\n[... testo troncato per lunghezza ...]"
+
+    ade_section = ""
+    if ade_fields:
+        # Render only non-None ADE fields as a structured hint to the LLM
+        lines = [
+            f"  {k}: {v}"
+            for k, v in ade_fields.items()
+            if v is not None
+        ]
+        if lines:
+            ade_section = (
+                "\n\n════════ CAMPI PRE-ESTRATTI (ADE) — usa come riferimento ════════\n"
+                + "\n".join(lines)
+                + "\n══════════════════════════════════════════════════════════════"
+            )
+
     return f"""\
 /no_think
 Valuta la seguente perizia rispetto alla checklist ENFSI BPM che ti ho fornito.
-
+{ade_section}
 ════════ TESTO DELLA PERIZIA ════════
 {perizia_text}
 ═════════════════════════════════════
@@ -293,12 +309,25 @@ def compliance_check_stream(perizia_text: str) -> Generator[str, None, None]:
     Routes to OpenAI chat completions or Ollama /api/generate depending on the
     active LLM model.  Yields the full accumulated text at each step (same
     contract as rag_chat_stream).
+
+    If VISION_AGENT_API_KEY is configured, runs a Landing.ai ADE pre-extraction
+    of the 20 ENFSI fields before calling the LLM, which improves accuracy and
+    reduces token usage.
     """
     from core.rag import OLLAMA_URL, _rag_model
     from core.providers import is_openai_model
 
+    # ADE pre-extraction (optional enhancement — gracefully skipped on error)
+    ade_fields: dict | None = None
+    try:
+        from core.docextract import ade_key_configured, ade_extract, ForensicReportSchema
+        if ade_key_configured():
+            ade_fields, _ = ade_extract(perizia_text, ForensicReportSchema)
+    except Exception:
+        pass  # ADE failure must never block the compliance check
+
     system_prompt = _build_system_prompt()
-    user_prompt = _build_user_prompt(perizia_text)
+    user_prompt = _build_user_prompt(perizia_text, ade_fields=ade_fields)
     accumulated = ""
 
     if is_openai_model(_rag_model):

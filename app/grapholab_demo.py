@@ -63,6 +63,7 @@ WRITER_EXAMPLES_DIR = WRITER_SAMPLES_DIR / "writer_examples"
 RAG_CACHE_DIR = ROOT / "data" / "rag_cache"
 
 from core.providers import openai_key_configured, invalidate_openai_client, is_openai_model
+from core.docextract import ade_key_configured, ade_pipeline, SCHEMA_REGISTRY, AdeResult
 _OLLAMA_AVAILABLE = check_ollama()
 _LLM_AVAILABLE = _OLLAMA_AVAILABLE or openai_key_configured()
 _OPENAI_MODELS = ["gpt-5.4-mini", "gpt-5.4", "gpt-5.4-nano"]
@@ -993,6 +994,127 @@ with gr.Blocks() as agent_tab:
     )
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Tab 11 — Estrazione Strutturata (Landing.ai ADE)
+# ──────────────────────────────────────────────────────────────────────────────
+
+_ADE_AVAILABLE = ade_key_configured()
+_ADE_SCHEMA_NAMES = list(SCHEMA_REGISTRY.keys()) + ["Schema libero (JSON)"]
+
+with gr.Blocks() as docextract_tab:
+    gr.Markdown(
+        "## Estrazione Strutturata da Documenti\n"
+        "Converti PDF, immagini e documenti scansionati in dati strutturati chiave/valore "
+        "con piena tracciabilità (bounding-box citations, confidence scores).\n\n"
+        "Tecnologia: **Landing.ai Agentic Document Extraction (ADE)** — modelli vision-first "
+        "ottimizzati per tabelle dense, form e layout complessi.\n\n"
+        "**Schema disponibili:** Perizia Forense (ENFSI 20 campi), Documento con Firma, Atto Legale, "
+        "oppure definisci un tuo schema JSON personalizzato."
+    )
+
+    if not _ADE_AVAILABLE:
+        gr.Markdown(
+            "⚠️ **VISION_AGENT_API_KEY non configurata.**\n\n"
+            "Aggiungi la chiave nel file `.env`:\n```\nVISION_AGENT_API_KEY=la_tua_chiave\n```\n"
+            "oppure imposta la variabile d'ambiente prima di avviare l'app."
+        )
+
+    with gr.Row():
+        with gr.Column(scale=1):
+            ade_file = gr.File(
+                label="Documento (PDF, PNG, JPG, TIFF)",
+                file_types=[".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".tif"],
+                interactive=_ADE_AVAILABLE,
+            )
+            ade_schema_dd = gr.Dropdown(
+                label="Schema di estrazione",
+                choices=_ADE_SCHEMA_NAMES,
+                value=_ADE_SCHEMA_NAMES[0],
+                interactive=_ADE_AVAILABLE,
+            )
+            ade_custom_schema = gr.Textbox(
+                label="Schema JSON personalizzato",
+                placeholder='{"title": "MioSchema", "properties": {"campo": {"type": "string", "description": "..."}}}',
+                lines=6,
+                visible=False,
+                interactive=_ADE_AVAILABLE,
+            )
+            ade_extract_btn = gr.Button("Estrai campi strutturati", variant="primary", interactive=_ADE_AVAILABLE)
+
+        with gr.Column(scale=2):
+            ade_status = gr.Markdown(label="Stato")
+            ade_fields_table = gr.Dataframe(
+                headers=["Campo", "Valore estratto"],
+                datatype=["str", "str"],
+                interactive=False,
+                label="Campi estratti",
+                wrap=True,
+            )
+            with gr.Accordion("Markdown documento (output parse)", open=False):
+                ade_markdown_out = gr.Textbox(
+                    label="Markdown strutturato",
+                    lines=20,
+                    interactive=False,
+                )
+            ade_json_out = gr.JSON(label="JSON completo (esporta)")
+
+    def _toggle_custom_schema(schema_name):
+        return gr.update(visible=(schema_name == "Schema libero (JSON)"))
+
+    ade_schema_dd.change(fn=_toggle_custom_schema, inputs=ade_schema_dd, outputs=ade_custom_schema)
+
+    def _run_ade_extraction(file_obj, schema_name, custom_schema_json):
+        if file_obj is None:
+            return "⚠️ Carica un documento prima di procedere.", [], "", {}
+
+        file_path = file_obj if isinstance(file_obj, str) else (
+            file_obj.get("name") if isinstance(file_obj, dict) else str(file_obj)
+        )
+
+        import json as _json
+
+        if schema_name == "Schema libero (JSON)":
+            # Use custom JSON schema directly via landingai_ade client
+            if not custom_schema_json or not custom_schema_json.strip():
+                return "⚠️ Incolla uno schema JSON nel campo dedicato.", [], "", {}
+            try:
+                custom_schema = _json.loads(custom_schema_json)
+            except _json.JSONDecodeError as e:
+                return f"❌ Schema JSON non valido: {e}", [], "", {}
+
+            try:
+                from core.docextract import ade_parse, ade_extract
+                markdown, chunks = ade_parse(file_path)
+                # pass the raw JSON string (already validated above)
+                fields, extraction_metadata = ade_extract(markdown, custom_schema_json)
+                result = AdeResult(markdown=markdown, fields=fields, chunks=chunks,
+                                   extraction_metadata=extraction_metadata)
+            except Exception as exc:
+                return f"❌ Errore: {exc}", [], "", {}
+        else:
+            schema_cls = SCHEMA_REGISTRY[schema_name]
+            result = ade_pipeline(file_path, schema_cls)
+
+        if not result.ok:
+            return f"❌ Errore: {result.error}", [], "", {}
+
+        # Build table rows — skip None values for readability
+        rows = [
+            [k, str(v) if v is not None else "—"]
+            for k, v in result.fields.items()
+        ]
+        filled = sum(1 for k, v in result.fields.items() if v is not None)
+        total = len(result.fields)
+        status = f"✅ Estrazione completata — {filled}/{total} campi trovati"
+        return status, rows, result.markdown, result.fields
+
+    ade_extract_btn.click(
+        fn=_run_ade_extraction,
+        inputs=[ade_file, ade_schema_dd, ade_custom_schema],
+        outputs=[ade_status, ade_fields_table, ade_markdown_out, ade_json_out],
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Main App
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -1000,7 +1122,7 @@ demo = gr.TabbedInterface(
     interface_list=[
         htr_tab, sig_verify_tab, sig_detect_tab,
         ner_tab, writer_tab, grapho_tab, pipeline_tab, dating_tab, rag_tab,
-        agent_tab,
+        agent_tab, docextract_tab,
     ],
     tab_names=[
         "OCR Manoscritto",
@@ -1013,6 +1135,7 @@ demo = gr.TabbedInterface(
         "Datazione Documenti",
         "Consulente Forense IA",
         "🤖 Agente Documentale",
+        "📄 Estrazione Strutturata",
     ],
     title=(
         "GraphoLab — Intelligenza Artificiale in Grafologia Forense"
